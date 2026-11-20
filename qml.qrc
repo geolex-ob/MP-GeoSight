@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/">
+        <file>main.qml</file>
+        <file>ColumnHeaders.qml</file>
+        <file>ColumnPlot.qml</file>
+        <file>TraceDialog.qml</file>
+        <file>SettingsDialog.qml</file>
+        <file>AboutDialog.qml</file>
+        <file>CfgDialog.qml</file>
+    </qresource>
+</RCC>
