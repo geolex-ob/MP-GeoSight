@@ -23,6 +23,7 @@ Dialog {
     property string unitStr: ""
     property real minV: 0
     property real maxV: 100
+    property bool colLog: false
     property int tick: 0
     property var fullList: []
     property var shownList: []
@@ -51,6 +52,34 @@ Dialog {
         }
         shownList = out
     }
+    function decadeRange() {
+        var ts = chartManager.tracesOf(dlg.colIndex)
+        var mn = Infinity, mx = -Infinity
+        for (var i = 0; i < ts.length; ++i) {
+            var r = dataStore.rangeOf(ts[i].sensorId)
+            if (r[0] > 0 && r[0] < mn) mn = r[0]
+            if (r[1] > mx) mx = r[1]
+        }
+        if (!isFinite(mn) || mn <= 0) mn = 0.0001
+        if (!isFinite(mx) || mx <= mn) mx = mn * 10000
+        mn = Math.pow(10, Math.floor(Math.log10(mn)))
+        mx = Math.pow(10, Math.ceil(Math.log10(mx)))
+        if (mx <= mn) mx = mn * 10
+        return [mn, mx]
+    }
+    function syncColLog() {
+        colLog = chartManager.columnLog(dlg.colIndex)
+        if (colLog) {
+            minField.text = chartManager.columnMin(dlg.colIndex)
+            maxField.text = chartManager.columnMax(dlg.colIndex)
+        }
+    }
+    function rangeEdited() {
+        if (!colLog) return
+        var mn = parseFloat(minField.text), mx = parseFloat(maxField.text)
+        if (isNaN(mn) || isNaN(mx)) return
+        chartManager.setColumnRange(dlg.colIndex, mn, mx)
+    }
     function setSensor(id) {
         sensorId = id
         unitStr = sensorCatalog.displayUnit(id)
@@ -67,6 +96,7 @@ Dialog {
         refreshList()
         colorStr = "#0033CC"
         setSensor(fullList.length ? fullList[0].id : 200)
+        syncColLog()
         open()
     }
     function openEdit(col, t) {
@@ -77,6 +107,7 @@ Dialog {
         unitStr = sensorCatalog.displayUnit(t.sensorId)
         titleStr = t.title; colorStr = t.color; minV = t.min; maxV = t.max
         titleField.text = t.title; minField.text = t.min; maxField.text = t.max
+        syncColLog()
         open()
     }
     function apply() {
@@ -85,6 +116,7 @@ Dialog {
         if (isNaN(mx) || mx <= mn) mx = mn + 1
         var ttl = titleField.text.trim()
         if (ttl === "") ttl = sensorCatalog.displayName(dlg.sensorId)
+        if (colLog) chartManager.setColumnRange(colIndex, mn, mx)
         if (editMode) chartManager.updateTrace(colIndex, traceId, sensorId, ttl, colorStr, mn, mx)
         else chartManager.addTrace(colIndex, sensorId, ttl, colorStr, mn, mx)
         win.toast(editMode ? "Параметр обновлён" : "Параметр добавлен в колонку " + (colIndex + 1))
@@ -325,6 +357,35 @@ Dialog {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            CheckBox {
+                id: logChk
+                text: "Логарифмическая шкала (вся колонка)"
+                font.pixelSize: 12
+                checked: dlg.colLog
+                onToggled: {
+                    dlg.colLog = checked
+                    chartManager.setColumnLog(dlg.colIndex, checked)
+                    if (checked) {
+                        var r = dlg.decadeRange()
+                        chartManager.setColumnRange(dlg.colIndex, r[0], r[1])
+                        minField.text = r[0]
+                        maxField.text = r[1]
+                    } else {
+                        minField.text = dlg.minV
+                        maxField.text = dlg.maxV
+                    }
+                }
+            }
+            Label {
+                visible: dlg.colLog
+                text: "единый мин/макс для всех датчиков колонки"
+                color: "#8894A0"; font.pixelSize: 11
+            }
+        }
+
         // ---- диапазон + колонка ----
         RowLayout {
             Layout.fillWidth: true
@@ -332,6 +393,7 @@ Dialog {
             Label { text: "Мин:"; color: dlg.win.ink; font.pixelSize: 13; font.bold: true }
             TextField {
                 id: minField
+                onEditingFinished: dlg.rangeEdited()
                 Layout.preferredWidth: 90
                 font.pixelSize: 13
                 font.family: "Monospace"
@@ -346,6 +408,7 @@ Dialog {
             Label { text: "Макс:"; color: dlg.win.ink; font.pixelSize: 13; font.bold: true }
             TextField {
                 id: maxField
+                onEditingFinished: dlg.rangeEdited()
                 Layout.preferredWidth: 90
                 font.pixelSize: 13
                 font.family: "Monospace"
@@ -362,9 +425,16 @@ Dialog {
                 text: "По данным"
                 font.pixelSize: 11
                 onClicked: {
-                    var r = dataStore.rangeOf(dlg.sensorId)
-                    minField.text = Number(r[0]).toFixed(2)
-                    maxField.text = Number(r[1]).toFixed(2)
+                    if (dlg.colLog) {
+                        var dr = dlg.decadeRange()
+                        chartManager.setColumnRange(dlg.colIndex, dr[0], dr[1])
+                        minField.text = dr[0]
+                        maxField.text = dr[1]
+                    } else {
+                        var r = dataStore.rangeOf(dlg.sensorId)
+                        minField.text = Number(r[0]).toFixed(2)
+                        maxField.text = Number(r[1]).toFixed(2)
+                    }
                 }
             }
             Item { Layout.fillWidth: true }
@@ -412,6 +482,9 @@ Dialog {
                     store: dataStore
                     windowSeconds: chartManager.timeWindow
                     offsetSeconds: chartManager.viewOffset
+                    logScale: dlg.colLog
+                    sharedMin: parseFloat(minField.text) || 0.0001
+                    sharedMax: parseFloat(maxField.text) || 10
                     traces: [{
                         sensorId: dlg.sensorId,
                         title: dlg.titleStr,

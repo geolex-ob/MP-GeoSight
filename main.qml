@@ -22,7 +22,8 @@ ApplicationWindow {
 
     property int tick: 0
     property int profilesRev: 0
-    property int headerBand: 34 + chartManager.maxTraceRows * 26
+    property int colRev: 0
+    property int headerBand: 34 + chartManager.maxTraceRows * 26 + ((root.colRev, root.computeAnyLog()) ? 16 : 0)
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.tick++ }
 
     function wheelStep() { return Math.max(30, chartManager.timeWindow / 10) }
@@ -45,6 +46,47 @@ ApplicationWindow {
         }
         if (notify) root.toast("Названия обновлены из Sensors.csv: " + n)
         return n
+    }
+    function computeAnyLog() {
+        for (var c = 0; c < chartManager.rowCount(); ++c)
+            if (chartManager.columnLog(c)) return true
+        return false
+    }
+    function decadesOf(col) {
+        var lo = chartManager.columnMin(col), hi = chartManager.columnMax(col)
+        if (!(lo > 0) || !(hi > lo)) return []
+        var out = []
+        for (var d = Math.ceil(Math.log10(lo)); d <= Math.floor(Math.log10(hi)); ++d)
+            out.push(Math.pow(10, d))
+        return out
+    }
+    function fmtDec(v) {
+        return v >= 0.001 ? String(parseFloat(v.toPrecision(4))) : v.toExponential(0)
+    }
+    function decadeRange(col) {
+        var ts = chartManager.tracesOf(col)
+        var mn = Infinity, mx = -Infinity
+        for (var i = 0; i < ts.length; ++i) {
+            var r = dataStore.rangeOf(ts[i].sensorId)
+            if (r[0] > 0 && r[0] < mn) mn = r[0]
+            if (r[1] > mx) mx = r[1]
+        }
+        if (!isFinite(mn) || mn <= 0) mn = 0.0001
+        if (!isFinite(mx) || mx <= mn) mx = mn * 10000
+        mn = Math.pow(10, Math.floor(Math.log10(mn)))
+        mx = Math.pow(10, Math.ceil(Math.log10(mx)))
+        if (mx <= mn) mx = mn * 10
+        return [mn, mx]
+    }
+    function toggleColumnLog(col) {
+        var on = !chartManager.columnLog(col)
+        chartManager.setColumnLog(col, on)
+        if (on) {
+            var r = decadeRange(col)
+            chartManager.setColumnRange(col, r[0], r[1])
+        }
+        root.toast(on ? "Колонка " + (col + 1) + ": лог-шкала, общий диапазон " + r[0] + "…" + r[1]
+                      : "Колонка " + (col + 1) + ": линейная шкала")
     }
     function syncWin() {
         var idx = 4
@@ -415,6 +457,11 @@ ApplicationWindow {
                             Text { text: "Колонка " + (hdrRect.index + 1); font.pixelSize: 10; font.bold: true; color: root.ink; anchors.verticalCenter: parent.verticalCenter }
                             ToolButton { text: "+ параметр"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: traceDialog.openAdd(hdrRect.index) }
+                            ToolButton {
+                                text: (root.colRev, chartManager.columnLog(hdrRect.index)) ? "Log ✓" : "Log"
+                                font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
+                                onClicked: root.toggleColumnLog(hdrRect.index)
+                            }
                             ToolButton { text: "×"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: chartManager.removeColumn(hdrRect.index) }
                         }
@@ -446,6 +493,7 @@ ApplicationWindow {
                                         width: parent.width
                                         height: 10
                                         spacing: 0
+                                        visible: !(root.colRev, chartManager.columnLog(hdrRect.index))
                                         Repeater {
                                             model: 5
                                             delegate: Text {
@@ -477,6 +525,24 @@ ApplicationWindow {
                                     background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 6 }
                                     MenuItem { text: "Изменить…"; onTriggered: traceDialog.openEdit(hdrRect.index, modelData) }
                                     MenuItem { text: "Убрать"; onTriggered: chartManager.removeTrace(hdrRect.index, modelData.id) }
+                                }
+                            }
+                        }
+
+                        Item {
+                            visible: (root.colRev, chartManager.columnLog(hdrRect.index))
+                            width: parent.width
+                            height: 14
+                            Repeater {
+                                model: (root.colRev, root.decadesOf(hdrRect.index))
+                                delegate: Text {
+                                    required property var modelData
+                                    x: parent ? (Math.log10(modelData) - Math.log10(chartManager.columnMin(hdrRect.index))) /
+                                       (Math.log10(chartManager.columnMax(hdrRect.index)) - Math.log10(chartManager.columnMin(hdrRect.index))) *
+                                       (parent.width - 34) : 0
+                                    font.pixelSize: 7
+                                    color: "#8894A0"
+                                    text: root.fmtDec(modelData)
                                 }
                             }
                         }
@@ -520,6 +586,9 @@ ApplicationWindow {
                         traces: colRect.modelData
                         windowSeconds: chartManager.timeWindow
                         offsetSeconds: chartManager.viewOffset
+                        logScale: (root.colRev, chartManager.columnLog(colRect.index))
+                        sharedMin: (root.colRev, chartManager.columnMin(colRect.index))
+                        sharedMax: (root.colRev, chartManager.columnMax(colRect.index))
                     }
 
                     MouseArea {
@@ -617,7 +686,7 @@ ApplicationWindow {
     }
     Connections {
         target: chartManager
-        function onConfigChanged() { root.syncWin() }
+        function onConfigChanged() { root.syncWin(); root.colRev++ }
     }
 
     Dialog {
