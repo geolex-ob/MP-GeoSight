@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
     engine.load(QUrl("qrc:/main.qml"));
     if (engine.rootObjects().isEmpty()) return 1;
 
-    engine.rootContext()->setContextProperty("appVersion", QStringLiteral("0.0.3"));
+    engine.rootContext()->setContextProperty("appVersion", QStringLiteral("0.0.5"));
     engine.rootContext()->setContextProperty("buildDate", QStringLiteral(__DATE__));
     if (network.autoConnect())
         network.connectToServer();

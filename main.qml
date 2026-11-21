@@ -10,7 +10,7 @@ ApplicationWindow {
     minimumWidth: 1280
     minimumHeight: 720
     color: "#E8EBEE"
-    title: "GTI Monitor — мониторинг буровой"
+    title: "MP GeoSight"
 
     readonly property color ink: "#12314E"
     readonly property color inkSoft: "#28517A"
@@ -255,13 +255,13 @@ ApplicationWindow {
             Label {
                 text: chartManager.viewOffset > 0
                       ? "АРХИВ: −" + (chartManager.viewOffset / 60).toFixed(1) + " мин"
-                      : "Живой режим"
+                      : "Режим реального времени"
                 color: chartManager.viewOffset > 0 ? root.bad : root.ok
                 font.bold: true
                 font.pixelSize: 12
             }
             ToolButton {
-                text: "К живому"
+                text: "К реальному времени"
                 visible: chartManager.viewOffset > 0
                 onClicked: chartManager.viewOffset = 0
             }
@@ -354,7 +354,7 @@ ApplicationWindow {
                 Text {
                     id: clock
                     anchors.centerIn: parent
-                    font.pixelSize: 26; font.bold: true
+                    font.pixelSize: 40; font.bold: true
                     color: root.ink
                 }
                 Timer { interval: 1000; running: true; repeat: true; triggeredOnStart: true
@@ -557,7 +557,7 @@ ApplicationWindow {
                 font.pixelSize: 12
             }
             Label {
-                text: "Колесо — архив · двойной клик — метка · ПКМ по метке — удалить"
+                text: "Колесо — архив. Двойной клик — метка."
                 color: "#8894A0"
                 font.pixelSize: 11
             }
@@ -598,8 +598,10 @@ ApplicationWindow {
         mode: "save"
         onChosen: function(p) {
             if (chartManager.exportToFile(p)) {
+                var base = p.substring(p.lastIndexOf("/") + 1)
+                chartManager.saveToLibrary(base)
                 root.profilesRev++
-                root.toast("Профиль сохранён: " + p)
+                root.toast("Профиль сохранён: " + base + " (также в библиотеке)")
             } else root.toast("Ошибка: " + chartManager.lastError())
         }
     }
