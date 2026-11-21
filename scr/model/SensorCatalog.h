@@ -12,6 +12,7 @@ public:
     Q_INVOKABLE bool reloadCsv();
     Q_INVOKABLE bool hasCsv() const { return m_hasCsv; }
     Q_INVOKABLE int csvCount() const { return m_csvName.size(); }
+    Q_INVOKABLE QVariantList csvSensors() const;
     Q_INVOKABLE QString displayName(int id) const;
     Q_INVOKABLE QString displayUnit(int id) const;
     Q_INVOKABLE double displayMin(int id) const;

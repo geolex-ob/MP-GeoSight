@@ -23,10 +23,22 @@ void ChartConfigManager::load()
         const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
         m_timeWindow = root.value("timeWindow").toInt(900);
         m_depthSensor = root.value("depthSensor").toInt(101);
-    m_bitSensor = root.value("bitSensor").toInt(102);
+    m_bitSensor = root.value("bitSensor").toInt(115);
+    if (m_bitSensor == 102 && !root.value("bitSensorMigrated").toBool(false))
+        m_bitSensor = 115;   // 102 — «над забоем», положение долота = 115
         for (const QJsonValue &cv : root.value("columns").toArray()) {
             Column c;
-            for (const QJsonValue &tv : cv.toArray()) {
+            QJsonArray traceArr;
+            if (cv.isObject()) {
+                const QJsonObject co = cv.toObject();
+                c.log = co.value("log").toBool(false);
+                c.lo = co.value("min").toDouble(0.0001);
+                c.hi = co.value("max").toDouble(10);
+                traceArr = co.value("traces").toArray();
+            } else {
+                traceArr = cv.toArray();
+            }
+            for (const QJsonValue &tv : traceArr) {
                 const QJsonObject o = tv.toObject();
                 Trace t;
                 t.id = o.value("id").toInt();
@@ -67,6 +79,7 @@ void ChartConfigManager::save()
     root["timeWindow"] = m_timeWindow;
     root["depthSensor"] = m_depthSensor;
     root["bitSensor"] = m_bitSensor;
+    root["bitSensorMigrated"] = true;
     QJsonArray cols;
     for (const Column &c : m_cols) {
         QJsonArray ts;
@@ -80,7 +93,12 @@ void ChartConfigManager::save()
             o["max"] = t.mx;
             ts.append(o);
         }
-        cols.append(ts);
+        QJsonObject co;
+        co["log"] = c.log;
+        co["min"] = c.lo;
+        co["max"] = c.hi;
+        co["traces"] = ts;
+        cols.append(co);
     }
     root["columns"] = cols;
     QFile f(m_path);
@@ -280,17 +298,10 @@ bool ChartConfigManager::importFromFile(const QString &path)
         m_lastError = "это не JSON-профиль";
         return false;
     }
-    save();
-    QFile cur(m_path);
-    if (!cur.open(QIODevice::ReadOnly)) { m_lastError = "внутренняя ошибка"; return false; }
-    const QJsonObject curObj = QJsonDocument::fromJson(cur.readAll()).object();
-    cur.close();
     const QJsonObject imp = doc.object();
-    for (const QString &k : curObj.keys()) {
-        if (!imp.contains(k)) {
-            m_lastError = "файл не похож на профиль GTI Monitor (нет ключа " + k + ")";
-            return false;
-        }
+    if (!imp.contains("columns") || !imp.value("columns").isArray()) {
+        m_lastError = "файл не похож на профиль GTI Monitor (нет списка колонок)";
+        return false;
     }
     QFile::remove(m_path);
     if (!QFile::copy(path, m_path)) { m_lastError = "не удалось применить профиль"; return false; }
@@ -338,6 +349,41 @@ void ChartConfigManager::setBitSensorId(int id)
 {
     if (id == m_bitSensor) return;
     m_bitSensor = id;
+    save();
+    emit configChanged();
+}
+
+bool ChartConfigManager::columnLog(int col) const
+{
+    return (col >= 0 && col < m_cols.size()) ? m_cols[col].log : false;
+}
+double ChartConfigManager::columnMin(int col) const
+{
+    return (col >= 0 && col < m_cols.size()) ? m_cols[col].lo : 0.0001;
+}
+double ChartConfigManager::columnMax(int col) const
+{
+    return (col >= 0 && col < m_cols.size()) ? m_cols[col].hi : 10.0;
+}
+void ChartConfigManager::setColumnLog(int col, bool on)
+{
+    if (col < 0 || col >= m_cols.size()) return;
+    if (m_cols[col].log == on) return;
+    m_cols[col].log = on;
+    if (on && !(m_cols[col].lo > 0 && m_cols[col].hi > m_cols[col].lo)) {
+        m_cols[col].lo = 0.0001;
+        m_cols[col].hi = 10;
+    }
+    save();
+    emit configChanged();
+}
+void ChartConfigManager::setColumnRange(int col, double mn, double mx)
+{
+    if (col < 0 || col >= m_cols.size()) return;
+    if (!(mn > 0)) mn = 0.0001;
+    if (!(mx > mn)) mx = mn * 10;
+    m_cols[col].lo = mn;
+    m_cols[col].hi = mx;
     save();
     emit configChanged();
 }

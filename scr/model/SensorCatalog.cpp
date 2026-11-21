@@ -264,3 +264,18 @@ double SensorCatalog::displayMax(int id) const
 {
     return m_csvMax.contains(id) ? m_csvMax.value(id) : defMax(id);
 }
+
+QVariantList SensorCatalog::csvSensors() const
+{
+    QVariantList out;
+    for (auto it = m_csvName.constBegin(); it != m_csvName.constEnd(); ++it) {
+        QVariantMap m;
+        m["id"] = it.key();
+        m["name"] = it.value();
+        m["unit"] = m_csvUnit.value(it.key());
+        m["min"] = m_csvMin.contains(it.key()) ? m_csvMin.value(it.key()) : defMin(it.key());
+        m["max"] = m_csvMax.contains(it.key()) ? m_csvMax.value(it.key()) : defMax(it.key());
+        out.append(m);
+    }
+    return out;
+}

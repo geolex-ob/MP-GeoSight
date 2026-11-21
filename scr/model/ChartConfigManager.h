@@ -13,7 +13,7 @@ struct Trace {
     double mx = 100;
 };
 
-struct Column { QVector<Trace> traces; };
+struct Column { QVector<Trace> traces; bool log = false; double lo = 0.0001; double hi = 10; };
 
 class ChartConfigManager : public QAbstractListModel
 {
@@ -59,6 +59,11 @@ public:
     Q_INVOKABLE QString homeDir() const;
     Q_INVOKABLE QString libraryDir() const;
     Q_INVOKABLE QVariantList tracesOf(int col) const;
+    Q_INVOKABLE bool columnLog(int col) const;
+    Q_INVOKABLE double columnMin(int col) const;
+    Q_INVOKABLE double columnMax(int col) const;
+    Q_INVOKABLE void setColumnLog(int col, bool on);
+    Q_INVOKABLE void setColumnRange(int col, double mn, double mx);
 
     Q_INVOKABLE void addColumn();
     Q_INVOKABLE void removeColumn(int col);
@@ -84,6 +89,6 @@ private:
     int m_selectedSensor = 0;
     QString m_lastError;
     int m_depthSensor = 101;
-    int m_bitSensor = 102;
+    int m_bitSensor = 115;
     QString m_path;
 };
