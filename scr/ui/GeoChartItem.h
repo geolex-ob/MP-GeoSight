@@ -12,6 +12,9 @@ class GeoChartItem : public QQuickPaintedItem
     Q_PROPERTY(QVariantList traces READ traces WRITE setTraces NOTIFY paramsChanged)
     Q_PROPERTY(int windowSeconds READ windowSeconds WRITE setWindowSeconds NOTIFY paramsChanged)
     Q_PROPERTY(int offsetSeconds READ offsetSeconds WRITE setOffsetSeconds NOTIFY paramsChanged)
+    Q_PROPERTY(bool logScale READ logScale WRITE setLogScale NOTIFY paramsChanged)
+    Q_PROPERTY(double sharedMin READ sharedMin WRITE setSharedMin NOTIFY paramsChanged)
+    Q_PROPERTY(double sharedMax READ sharedMax WRITE setSharedMax NOTIFY paramsChanged)
 
 public:
     explicit GeoChartItem(QQuickItem *parent = nullptr);
@@ -25,6 +28,12 @@ public:
     void setWindowSeconds(int v);
     int offsetSeconds() const { return m_offset; }
     void setOffsetSeconds(int v);
+    bool logScale() const { return m_log; }
+    void setLogScale(bool v);
+    double sharedMin() const { return m_sharedMin; }
+    void setSharedMin(double v);
+    double sharedMax() const { return m_sharedMax; }
+    void setSharedMax(double v);
 
     Q_INVOKABLE void addMarkerAt(double x, double y, int preferredSensor = -1);
     Q_INVOKABLE bool removeMarkerAt(double x, double y);
@@ -42,6 +51,10 @@ private:
     QVariantList m_traces;
     int m_window = 900;
     int m_offset = 0;
+    bool m_log = false;
+    double m_sharedMin = 0.0001;
+    double m_sharedMax = 10;
+    double xOf(double v, double lo, double hi, double padL, double pw) const;
 
     struct Marker { double t = 0; int sensor = 0; double value = 0; QColor color; };
     QVector<Marker> m_markers;

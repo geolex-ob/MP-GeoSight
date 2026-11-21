@@ -5,6 +5,7 @@
 #include <QQuickWindow>
 #include <QVector>
 #include <limits>
+#include <cmath>
 
 static qreal dprOf(const QQuickItem *item)
 {
@@ -90,6 +91,43 @@ void GeoChartItem::setOffsetSeconds(int v)
     update();
 }
 
+void GeoChartItem::setLogScale(bool v)
+{
+    if (m_log == v) return;
+    m_log = v;
+    emit paramsChanged();
+    update();
+}
+
+void GeoChartItem::setSharedMin(double v)
+{
+    if (m_sharedMin == v) return;
+    m_sharedMin = v;
+    emit paramsChanged();
+    update();
+}
+
+void GeoChartItem::setSharedMax(double v)
+{
+    if (m_sharedMax == v) return;
+    m_sharedMax = v;
+    emit paramsChanged();
+    update();
+}
+
+double GeoChartItem::xOf(double v, double lo, double hi, double padL, double pw) const
+{
+    if (m_log) {
+        if (!(lo > 0)) lo = 1e-4;
+        if (!(hi > lo)) hi = lo * 10;
+        const double l0 = std::log10(lo);
+        const double l1 = std::log10(hi);
+        const double lv = std::log10(qBound(lo, v, hi));
+        return padL + (lv - l0) / (l1 - l0) * pw;
+    }
+    return padL + (v - lo) / (hi - lo) * pw;
+}
+
 void GeoChartItem::paint(QPainter *p)
 {
     const QRectF r = boundingRect();
@@ -110,9 +148,18 @@ void GeoChartItem::paint(QPainter *p)
     grid.setStyle(Qt::DashLine);
     grid.setWidthF(0.6);
     p->setPen(grid);
-    for (int i = 0; i <= 8; ++i) {
-        const double x = padL + pw * i / 8.0;
-        p->drawLine(QPointF(x, padT), QPointF(x, padT + ph));
+    if (m_log) {
+        const double l0 = std::log10(qMax(m_sharedMin, 1e-12));
+        const double l1 = std::log10(qMax(m_sharedMax, m_sharedMin * 10));
+        for (int d = int(std::ceil(l0)); d <= int(std::floor(l1)); ++d) {
+            const double x = padL + (d - l0) / (l1 - l0) * pw;
+            p->drawLine(QPointF(x, padT), QPointF(x, padT + ph));
+        }
+    } else {
+        for (int i = 0; i <= 8; ++i) {
+            const double x = padL + pw * i / 8.0;
+            p->drawLine(QPointF(x, padT), QPointF(x, padT + ph));
+        }
     }
     if (tEnd > 0) {
         const double step = minuteStep(m_window, ph);
@@ -134,8 +181,9 @@ void GeoChartItem::paint(QPainter *p)
         double lo = m.value("min").toDouble();
         double hi = m.value("max").toDouble();
         if (!(hi > lo)) hi = lo + 1;
+        if (m_log) { lo = m_sharedMin; hi = m_sharedMax; if (!(lo > 0)) lo = 1e-4; if (!(hi > lo)) hi = lo * 10; }
         const QColor color(m.value("color").toString());
-        auto X = [&](double v){ return padL + (v - lo) / (hi - lo) * pw; };
+        auto X = [&](double v){ return xOf(v, lo, hi, padL, pw); };
 
         const QVector<Sample> s = m_store->snapshot(uint16_t(sensor));
         if (s.size() < 2) continue;
@@ -198,7 +246,7 @@ void GeoChartItem::paint(QPainter *p)
         }
         if (!found) continue;
         const double y = Y(mk.t);
-        const double x = qBound(padL, padL + (mk.value - lo) / (hi - lo) * pw, padL + pw);
+        const double x = qBound(padL, xOf(mk.value, lo, hi, padL, pw), padL + pw);
         if (y < padT || y > padT + ph) continue;
 
         p->setPen(QPen(mk.color, 1));
@@ -246,6 +294,7 @@ void GeoChartItem::addMarkerAt(double x, double y, int preferredSensor)
         double lo = m.value("min").toDouble();
         double hi = m.value("max").toDouble();
         if (!(hi > lo)) hi = lo + 1;
+        if (m_log) { lo = m_sharedMin; hi = m_sharedMax; if (!(lo > 0)) lo = 1e-4; if (!(hi > lo)) hi = lo * 10; }
         const QVector<Sample> smp = m_store->snapshot(uint16_t(sensor));
         if (smp.isEmpty()) continue;
         int idx = -1;
@@ -256,7 +305,7 @@ void GeoChartItem::addMarkerAt(double x, double y, int preferredSensor)
         }
         if (idx < 0) continue;
         const double v = smp[idx].v;
-        const double xv = padL + (v - lo) / (hi - lo) * pw;
+        const double xv = xOf(v, lo, hi, padL, pw);
         const double d = qAbs(xv - x);
         if (d < bestDist) {
             bestDist = d; bestSensor = sensor; bestVal = v; bestT = smp[idx].t;
@@ -294,8 +343,9 @@ bool GeoChartItem::removeMarkerAt(double x, double y)
             break;
         }
         if (!found) { m_markers.removeAt(i); update(); continue; }
+        if (m_log) { lo = m_sharedMin; hi = m_sharedMax; if (!(lo > 0)) lo = 1e-4; if (!(hi > lo)) hi = lo * 10; }
         const double yy = padT + (mk.t - tStart) / m_window * ph;
-        const double xx = padL + (mk.value - lo) / (hi - lo) * pw;
+        const double xx = xOf(mk.value, lo, hi, padL, pw);
         if (qAbs(xx - x) < 16 && qAbs(yy - y) < 16) {
             m_markers.removeAt(i);
             update();
