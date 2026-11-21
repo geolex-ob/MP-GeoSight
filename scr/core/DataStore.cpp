@@ -95,3 +95,16 @@ void DataStore::setTrackedSensors(const QVariantList &ids)
     m_tracked.clear();
     for (const QVariant &v : ids) m_tracked.insert(v.toInt());
 }
+
+QVariantList DataStore::rangeOf(int id)
+{
+    const QVector<Sample> s = snapshot(uint16_t(id));
+    QVariantList out;
+    if (s.isEmpty()) { out.append(0.0); out.append(1.0); return out; }
+    double mn = s.first().v, mx = s.first().v;
+    for (const Sample &p : s) { mn = qMin(mn, p.v); mx = qMax(mx, p.v); }
+    if (mx - mn < 1e-9) { mn -= 1.0; mx += 1.0; }
+    out.append(mn);
+    out.append(mx);
+    return out;
+}

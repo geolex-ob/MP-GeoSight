@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QMap>
 #include <QVector>
+#include <QVariantList>
 #include <QTimer>
 #include <QMutex>
 #include <QSet>
@@ -25,6 +26,7 @@ public:
     Q_INVOKABLE QString serverTimeString() const;
     Q_INVOKABLE double secondsSinceUpdate() const;
     Q_INVOKABLE double lastEpoch() const;
+    Q_INVOKABLE QVariantList rangeOf(int id);
     void setTrackedSensors(const QVariantList &ids);
 
 signals:
