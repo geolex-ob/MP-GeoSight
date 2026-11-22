@@ -19,12 +19,17 @@ ApplicationWindow {
     readonly property color line: "#B9C4CE"
     readonly property color ok: "#1D8A4E"
     readonly property color bad: "#C22B2B"
+    readonly property int gutterW: 92
+    readonly property int colGap: 2
 
     property int tick: 0
     property int profilesRev: 0
     property int colRev: 0
     property int infosRev: 0
     property int commentCol: -1
+    property int dragCol: -1
+    property int dragId: -1
+    property bool didDrag: false
     property int headerBand: 34 + chartManager.maxTraceRows * 26 + ((root.colRev, root.computeAnyLog()) ? 16 : 0)
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.tick++ }
 
@@ -122,6 +127,49 @@ ApplicationWindow {
                 commentDialog.open(); return
             }
         }
+    }
+
+    // ---------- геометрия колонок: сумма ширин = ширине контейнера ----------
+    function availWidth() {
+        var n = Math.max(1, chartManager.rowCount())
+        var a = chartsHost.width - root.gutterW - root.colGap * n
+        return (isFinite(a) && a > 0) ? a : 100 * n
+    }
+    function sumWeights() {
+        var n = chartManager.rowCount(), sumW = 0
+        for (var k = 0; k < n; ++k) {
+            var w = chartManager.columnWeight(k)
+            sumW += (isFinite(w) && w > 0) ? w : 1
+        }
+        return (isFinite(sumW) && sumW > 0) ? sumW : Math.max(1, n)
+    }
+    function colWidth(i) {
+        var n = Math.max(1, chartManager.rowCount())
+        var w = chartManager.columnWeight(i)
+        if (!isFinite(w) || w <= 0) w = 1
+        var cw = availWidth() * w / sumWeights()
+        return (isFinite(cw) && cw >= 10) ? cw : availWidth() / n
+    }
+    function colX(i) {
+        var x = root.gutterW + root.colGap * (i + 1)
+        for (var k = 0; k < i; ++k) x += colWidth(k)
+        return x
+    }
+    function resizeColumn(i, d) {
+        var n = chartManager.rowCount()
+        if (i < 0 || i >= n - 1) return
+        if (!isFinite(d)) return
+        var avail = availWidth()
+        if (avail <= 50) return
+        var dw = d / avail * sumWeights()
+        if (!isFinite(dw)) return
+        var wi = chartManager.columnWeight(i) + dw
+        var wj = chartManager.columnWeight(i + 1) - dw
+        var minW = 0.05
+        if (wi < minW) { wj -= (minW - wi); wi = minW }
+        if (wj < minW) { wi -= (minW - wj); wj = minW }
+        chartManager.setColumnWeight(i, wi)
+        chartManager.setColumnWeight(i + 1, wj)
     }
 
     component ToolButton: Button {
@@ -350,7 +398,7 @@ ApplicationWindow {
                 caption: "СВЕЧИ, шт"
                 bar: "#C22B2B"
                 val: (root.tick, dataStore.secondsSinceUpdate() < 0 ? "—"
-                      : String(dataStore.standsCount(chartManager.depthSensorId, chartManager.bitSensorId, chartManager.standLength)))
+                      : Number(dataStore.value(chartManager.standsSensorId)).toFixed(0))
             }
             ValueBox {
                 caption: "ДОЛОТО, м"
@@ -410,26 +458,25 @@ ApplicationWindow {
         anchors.margins: 4
         spacing: 2
 
-        RowLayout {
+        // ---------- Шапки колонок ----------
+        Item {
+            id: headersHost
             Layout.fillWidth: true
             Layout.preferredHeight: root.headerBand
             Layout.minimumHeight: root.headerBand
             Layout.maximumHeight: root.headerBand
-            spacing: 2
 
-            Item {
-                Layout.preferredWidth: 92
-                Layout.fillHeight: true
-                Rectangle {
-                    anchors.fill: parent
-                    color: "#F2F5F7"
-                    border.color: root.line
-                    Column {
-                        anchors.centerIn: parent
-                        spacing: 2
-                        Text { text: "Глубина"; font.pixelSize: 10; font.bold: true; color: root.ink; width: parent.width; horizontalAlignment: Text.AlignHCenter }
-                        Text { text: "Время"; font.pixelSize: 10; font.bold: true; color: root.ink; width: parent.width; horizontalAlignment: Text.AlignHCenter }
-                    }
+            Rectangle {
+                x: 0; y: 0
+                width: root.gutterW
+                height: parent.height
+                color: "#F2F5F7"
+                border.color: root.line
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 2
+                    Text { text: "Глубина"; font.pixelSize: 10; font.bold: true; color: root.ink; width: parent.width; horizontalAlignment: Text.AlignHCenter }
+                    Text { text: "Время"; font.pixelSize: 10; font.bold: true; color: root.ink; width: parent.width; horizontalAlignment: Text.AlignHCenter }
                 }
             }
 
@@ -439,8 +486,10 @@ ApplicationWindow {
                     id: hdrRect
                     required property var modelData
                     required property int index
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    x: (root.colRev, root.colX(index))
+                    y: 0
+                    width: (root.colRev, root.colWidth(index))
+                    height: parent.height
                     color: "#FBFCFD"
                     border.color: root.line
 
@@ -453,12 +502,18 @@ ApplicationWindow {
                             width: parent.width
                             height: 22
                             spacing: 4
-                            Text { text: "Колонка " + (hdrRect.index + 1); font.pixelSize: 10; font.bold: true; color: root.ink; anchors.verticalCenter: parent.verticalCenter }
+                            Text {
+                                text: "Колонка " + (hdrRect.index + 1) + ((root.colRev, chartManager.columnLog(hdrRect.index)) ? " · log" : "")
+                                font.pixelSize: 10; font.bold: true; color: root.ink
+                                anchors.verticalCenter: parent.verticalCenter
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onDoubleClicked: colDialog.openFor(hdrRect.index)
+                                }
+                            }
                             ToolButton { text: "+ параметр"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: traceDialog.openAdd(hdrRect.index) }
-                            ToolButton { text: (root.colRev, chartManager.columnLog(hdrRect.index)) ? "Log ✓" : "Log"
-                                         font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
-                                         onClicked: root.toggleColumnLog(hdrRect.index) }
                             ToolButton { text: "💬"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: root.startComment(hdrRect.index) }
                             ToolButton { text: "×"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
@@ -549,15 +604,17 @@ ApplicationWindow {
             }
         }
 
-        RowLayout {
+        // ---------- Графики ----------
+        Item {
+            id: chartsHost
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 200
-            spacing: 2
 
             TimeAxis {
-                Layout.preferredWidth: 92
-                Layout.fillHeight: true
+                x: 0; y: 0
+                width: root.gutterW
+                height: parent.height
                 store: dataStore
                 windowSeconds: chartManager.timeWindow
                 depthSensorId: chartManager.depthSensorId
@@ -570,8 +627,10 @@ ApplicationWindow {
                     id: colRect
                     required property var modelData
                     required property int index
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    x: (root.colRev, root.colX(index))
+                    y: 0
+                    width: (root.colRev, root.colWidth(index))
+                    height: parent.height
                     color: "#FFFFFF"
                     border.color: root.line
 
@@ -594,6 +653,31 @@ ApplicationWindow {
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onWheel: function(w) { root.scroll(w.angleDelta.y > 0 ? 1 : -1) }
+                        onPressed: function(m) {
+                            if (m.button !== Qt.LeftButton) return
+                            var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
+                            var cid = geoChart.commentAt(pt.x, pt.y)
+                            if (cid >= 0) {
+                                root.dragCol = colRect.index
+                                root.dragId = cid
+                                root.didDrag = false
+                                geoChart.highlightComment = cid
+                            }
+                        }
+                        onPositionChanged: function(m) {
+                            if (root.dragId < 0) return
+                            var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
+                            var cc = geoChart.commentCoords(pt.x, pt.y)
+                            chartManager.moveComment(root.dragCol, root.dragId, cc[0], cc[1])
+                            root.didDrag = true
+                        }
+                        onReleased: function(m) {
+                            if (root.dragId >= 0) {
+                                chartManager.saveNow()
+                                geoChart.highlightComment = -1
+                                root.dragId = -1
+                            }
+                        }
                         onDoubleClicked: function(m) {
                             if (m.button !== Qt.LeftButton) return
                             var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
@@ -602,6 +686,7 @@ ApplicationWindow {
                             else geoChart.addMarkerAt(pt.x, pt.y, chartManager.selectedSensor)
                         }
                         onClicked: function(m) {
+                            if (root.didDrag) { root.didDrag = false; return }
                             var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
                             if (m.button === Qt.RightButton) {
                                 if (!geoChart.removeMarkerAt(pt.x, pt.y)) {
@@ -615,10 +700,45 @@ ApplicationWindow {
                             }
                         }
                     }
+
+                    // ---------- ручка изменения ширины (DragHandler) ----------
+                    Rectangle {
+                        z: 2
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 8
+                        color: resizeDrag.active ? root.accent
+                             : (resizeHover.containsMouse ? "#66E8A013" : "transparent")
+                        MouseArea {
+                            id: resizeHover
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                            cursorShape: Qt.SizeHorCursor
+                        }
+                        DragHandler {
+                            id: resizeDrag
+                            target: null
+                            property real lastX: 0
+                            onActiveChanged: {
+                                if (active) {
+                                    lastX = centroid.position.x
+                                } else {
+                                    chartManager.saveNow()
+                                }
+                            }
+                            onCentroidChanged: {
+                                if (!active) return
+                                var d = centroid.position.x - lastX
+                                lastX = centroid.position.x
+                                root.resizeColumn(colRect.index, d)
+                            }
+                        }
+                    }
                 }
             }
         }
-
     }
 
     footer: Rectangle {
@@ -631,7 +751,7 @@ ApplicationWindow {
             spacing: 10
             Label { text: networkManager.connected ? "● Подключено" : "○ Отключено"
                     color: networkManager.connected ? root.ok : root.bad; font.pixelSize: 12 }
-            Label { text: "Колесо — архив. Двойной клик — метка."; color: "#8894A0"; font.pixelSize: 11 }
+            Label { text: "Колесо — архив. Двойной клик — метка. Тяните правый край колонки — ширина."; color: "#8894A0"; font.pixelSize: 11 }
             Label {
                 id: toastLabel
                 opacity: 0
