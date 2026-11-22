@@ -23,6 +23,8 @@ ApplicationWindow {
     property int tick: 0
     property int profilesRev: 0
     property int colRev: 0
+    property int infosRev: 0
+    property int commentCol: -1
     property int headerBand: 34 + chartManager.maxTraceRows * 26 + ((root.colRev, root.computeAnyLog()) ? 16 : 0)
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.tick++ }
 
@@ -31,21 +33,8 @@ ApplicationWindow {
         chartManager.viewOffset = Math.max(0, Math.min(96 * 3600,
             chartManager.viewOffset + dir * root.wheelStep()))
     }
-    function applyCsvNames(notify) {
-        var n = 0
-        for (var c = 0; c < chartManager.rowCount(); ++c) {
-            var ts = chartManager.tracesOf(c)
-            for (var i = 0; i < ts.length; ++i) {
-                var t = ts[i]
-                var nm = sensorCatalog.displayName(t.sensorId)
-                if (nm !== t.title) {
-                    chartManager.updateTrace(c, t.id, t.sensorId, nm, t.color, t.min, t.max)
-                    n++
-                }
-            }
-        }
-        if (notify) root.toast("Названия обновлены из Sensors.csv: " + n)
-        return n
+    function fmtVal(v, col) {
+        return chartManager.columnLog(col) ? v.toFixed(4) : v.toFixed(2)
     }
     function computeAnyLog() {
         for (var c = 0; c < chartManager.rowCount(); ++c)
@@ -88,6 +77,22 @@ ApplicationWindow {
         root.toast(on ? "Колонка " + (col + 1) + ": лог-шкала, общий диапазон " + r[0] + "…" + r[1]
                       : "Колонка " + (col + 1) + ": линейная шкала")
     }
+    function applyCsvNames(notify) {
+        var n = 0
+        for (var c = 0; c < chartManager.rowCount(); ++c) {
+            var ts = chartManager.tracesOf(c)
+            for (var i = 0; i < ts.length; ++i) {
+                var t = ts[i]
+                var nm = sensorCatalog.displayName(t.sensorId)
+                if (nm !== t.title) {
+                    chartManager.updateTrace(c, t.id, t.sensorId, nm, t.color, t.min, t.max)
+                    n++
+                }
+            }
+        }
+        if (notify) root.toast("Названия обновлены из Sensors.csv: " + n)
+        return n
+    }
     function syncWin() {
         var idx = 4
         for (var i = 0; i < winModel.count; ++i)
@@ -98,6 +103,25 @@ ApplicationWindow {
         toastLabel.text = msg
         toastLabel.opacity = 1
         toastTimer.restart()
+    }
+    function startComment(col) {
+        root.commentCol = col
+        root.toast("Кликните левой кнопкой по графику колонки " + (col + 1) + " для комментария")
+    }
+    function openCommentAdd(col, t, yFrac) {
+        commentDialog.col = col; commentDialog.t = t; commentDialog.yFrac = yFrac; commentDialog.editId = -1
+        commentText.text = ""
+        commentDialog.open()
+    }
+    function openCommentEdit(col, cid) {
+        var list = chartManager.commentsOf(col)
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].id === cid) {
+                commentDialog.col = col; commentDialog.t = list[i].t; commentDialog.yFrac = list[i].yFrac
+                commentDialog.editId = cid; commentText.text = list[i].text
+                commentDialog.open(); return
+            }
+        }
     }
 
     component ToolButton: Button {
@@ -167,22 +191,13 @@ ApplicationWindow {
             palette.highlight: "#FDF3DC"
             palette.highlightedText: root.ink
             background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 6 }
-            MenuItem {
-                text: "Настройки подключения…"
-                onTriggered: settingsDialog.open()
-            }
+            MenuItem { text: "Настройки подключения…"; onTriggered: settingsDialog.open() }
             MenuSeparator { }
             MenuItem {
                 text: "Сохранить настройки отображения"
-                onTriggered: {
-                    chartManager.saveNow()
-                    root.toast("Настройки отображения сохранены в charts.json")
-                }
+                onTriggered: { chartManager.saveNow(); root.toast("Настройки отображения сохранены в charts.json") }
             }
-            MenuItem {
-                text: "Сбросить настройки отображения…"
-                onTriggered: resetConfirm.open()
-            }
+            MenuItem { text: "Сбросить настройки отображения…"; onTriggered: resetConfirm.open() }
             Menu {
                 title: "Профили (.cfg)"
                 palette.text: root.ink
@@ -209,19 +224,13 @@ ApplicationWindow {
                                 if (chartManager.importFromFile(chartManager.profilePath(modelData))) {
                                     root.profilesRev++
                                     root.toast("Профиль применён: " + modelData)
-                                } else {
-                                    root.toast("Ошибка: " + chartManager.lastError())
-                                }
+                                } else root.toast("Ошибка: " + chartManager.lastError())
                             }
                         }
                         onObjectAdded: libMenu.insertItem(index, object)
                         onObjectRemoved: libMenu.removeItem(object)
                     }
-                    MenuItem {
-                        text: "(библиотека пуста)"
-                        enabled: false
-                        visible: chartManager.profileNames().length === 0
-                    }
+                    MenuItem { text: "(библиотека пуста)"; enabled: false; visible: chartManager.profileNames().length === 0 }
                 }
                 MenuItem { text: "Обновить список"; onTriggered: root.profilesRev++ }
             }
@@ -233,13 +242,7 @@ ApplicationWindow {
                     else root.toast("Sensors.csv не найден рядом с программой")
                 }
             }
-            MenuItem {
-                text: "Переподключиться"
-                onTriggered: {
-                    networkManager.reconnect()
-                    root.toast("Переподключение к " + networkManager.serverIP + " …")
-                }
-            }
+            MenuItem { text: "Переподключиться"; onTriggered: { networkManager.reconnect(); root.toast("Переподключение к " + networkManager.serverIP + " …") } }
             MenuItem {
                 id: autoItem
                 checkable: true
@@ -248,14 +251,8 @@ ApplicationWindow {
                 onTriggered: networkManager.autoConnect = checked
             }
             MenuSeparator { }
-            MenuItem {
-                text: "О программе…"
-                onTriggered: aboutDialog.open()
-            }
-            MenuItem {
-                text: "Выход"
-                onTriggered: Qt.quit()
-            }
+            MenuItem { text: "О программе…"; onTriggered: aboutDialog.open() }
+            MenuItem { text: "Выход"; onTriggered: Qt.quit() }
         }
     }
 
@@ -277,36 +274,20 @@ ApplicationWindow {
                 RowLayout {
                     anchors.centerIn: parent
                     spacing: 6
-                    Rectangle {
-                        Layout.preferredWidth: 9; Layout.preferredHeight: 9; radius: 5
-                        color: networkManager.connected ? root.ok : root.bad
-                    }
-                    Label {
-                        text: networkManager.connected ? "Подключено" : "Нет связи"
-                        color: networkManager.connected ? root.ok : root.bad
-                        font.pixelSize: 12; font.bold: true
-                    }
+                    Rectangle { Layout.preferredWidth: 9; Layout.preferredHeight: 9; radius: 5
+                                color: networkManager.connected ? root.ok : root.bad }
+                    Label { text: networkManager.connected ? "Подключено" : "Нет связи"
+                            color: networkManager.connected ? root.ok : root.bad
+                            font.pixelSize: 12; font.bold: true }
                 }
             }
+            Label { text: networkManager.serverIP; color: root.inkSoft; font.pixelSize: 12; font.family: "Monospace" }
             Label {
-                text: networkManager.serverIP
-                color: root.inkSoft
-                font.pixelSize: 12
-                font.family: "Monospace"
-            }
-            Label {
-                text: chartManager.viewOffset > 0
-                      ? "АРХИВ: −" + (chartManager.viewOffset / 60).toFixed(1) + " мин"
-                      : "Режим реального времени"
+                text: chartManager.viewOffset > 0 ? "АРХИВ −" + (chartManager.viewOffset / 60).toFixed(0) + "м" : "LIVE"
                 color: chartManager.viewOffset > 0 ? root.bad : root.ok
-                font.bold: true
-                font.pixelSize: 12
+                font.bold: true; font.pixelSize: 12
             }
-            ToolButton {
-                text: "К реальному времени"
-                visible: chartManager.viewOffset > 0
-                onClicked: chartManager.viewOffset = 0
-            }
+            ToolButton { text: "К реальному времени"; visible: chartManager.viewOffset > 0; onClicked: chartManager.viewOffset = 0 }
             Item { Layout.fillWidth: true }
             Label { text: "Окно:"; color: root.ink; font.pixelSize: 12 }
             ComboBox {
@@ -332,17 +313,8 @@ ApplicationWindow {
                     ListElement { label: "24 часа";   sec: 86400 }
                 }
                 onActivated: function(i) { chartManager.timeWindow = winModel.get(i).sec }
-                Component.onCompleted: {
-                    var idx = 4
-                    for (var i = 0; i < winModel.count; ++i)
-                        if (winModel.get(i).sec === chartManager.timeWindow) idx = i
-                    currentIndex = idx
-                }
-                background: Rectangle {
-                    radius: 6
-                    color: "#FFFFFF"
-                    border.color: winCombo.hovered ? root.accent : root.line
-                }
+                Component.onCompleted: root.syncWin()
+                background: Rectangle { radius: 6; color: "#FFFFFF"; border.color: winCombo.hovered ? root.accent : root.line }
                 popup: Popup {
                     y: winCombo.height + 2
                     width: winCombo.width
@@ -350,23 +322,15 @@ ApplicationWindow {
                     background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 6 }
                     contentItem: ListView {
                         clip: true
-                        model: winCombo.popup.contentItem ? winModel : winModel
+                        model: winModel
                         currentIndex: winCombo.highlightedIndex
                         delegate: ItemDelegate {
                             width: winCombo.width
                             height: 30
                             required property var model
                             required property int index
-                            contentItem: Text {
-                                text: model.label
-                                color: root.ink
-                                font.pixelSize: 12
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 10
-                            }
-                            background: Rectangle {
-                                color: highlighted ? "#FDF3DC" : "transparent"
-                            }
+                            contentItem: Text { text: model.label; color: root.ink; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; leftPadding: 10 }
+                            background: Rectangle { color: highlighted ? "#FDF3DC" : "transparent" }
                             onClicked: {
                                 winCombo.currentIndex = index
                                 chartManager.timeWindow = winModel.get(index).sec
@@ -377,28 +341,64 @@ ApplicationWindow {
                 }
             }
             ToolButton { text: "+ Колонка"; onClicked: chartManager.addColumn() }
-            ToolButton { text: "О программе"; onClicked: aboutDialog.open() }
             ValueBox {
                 caption: "ЗАБОЙ, м"
                 bar: root.accent
+                val: (root.tick, dataStore.secondsSinceUpdate() < 0 ? "—" : Number(dataStore.value(chartManager.depthSensorId)).toFixed(2))
+            }
+            ValueBox {
+                caption: "СВЕЧИ, шт"
+                bar: "#C22B2B"
                 val: (root.tick, dataStore.secondsSinceUpdate() < 0 ? "—"
-                      : Number(dataStore.value(chartManager.depthSensorId)).toFixed(2))
+                      : String(dataStore.standsCount(chartManager.depthSensorId, chartManager.bitSensorId, chartManager.standLength)))
             }
             ValueBox {
                 caption: "ДОЛОТО, м"
                 bar: root.inkSoft
-                val: (root.tick, dataStore.secondsSinceUpdate() < 0 ? "—"
-                      : Number(dataStore.value(chartManager.bitSensorId)).toFixed(2))
+                val: (root.tick, dataStore.secondsSinceUpdate() < 0 ? "—" : Number(dataStore.value(chartManager.bitSensorId)).toFixed(2))
+            }
+            Repeater {
+                model: 3
+                delegate: Rectangle {
+                    id: infoHdr
+                    required property int index
+                    Layout.preferredWidth: 92
+                    Layout.preferredHeight: 40
+                    color: "#FFFFFF"
+                    border.color: root.line
+                    radius: 6
+                    property var info: (root.infosRev, chartManager.infos())[infoHdr.index]
+                    Rectangle { x: 0; y: 6; width: 3; height: parent.height - 12; radius: 2; color: "#00B8A9" }
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 0
+                        Text {
+                            width: parent.width - 8
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            text: info.title
+                            font.pixelSize: 8; font.bold: true; color: "#6B7A88"
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: (root.tick, info.sensorId > 0 && dataStore.secondsSinceUpdate() >= 0
+                                  ? Number(dataStore.value(info.sensorId)).toFixed(info.decimals) + " " + info.unit : "—")
+                            font.pixelSize: 15; font.bold: true; font.family: "Monospace"; color: root.ink
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onDoubleClicked: infoDialog.openFor(infoHdr.index)
+                    }
+                    Text { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 3
+                           text: "⚙"; font.pixelSize: 8; color: "#B9C4CE" }
+                }
             }
             Rectangle {
-                Layout.preferredWidth: 108; Layout.preferredHeight: 40
+                Layout.preferredWidth: 96; Layout.preferredHeight: 40
                 color: "#FFFFFF"; border.color: root.line; radius: 6
-                Text {
-                    id: clock
-                    anchors.centerIn: parent
-                    font.pixelSize: 40; font.bold: true
-                    color: root.ink
-                }
+                Text { id: clock; anchors.centerIn: parent; font.pixelSize: 32; font.bold: true; color: root.ink }
                 Timer { interval: 1000; running: true; repeat: true; triggeredOnStart: true
                         onTriggered: clock.text = Qt.formatTime(new Date(), "hh:mm") }
             }
@@ -410,7 +410,6 @@ ApplicationWindow {
         anchors.margins: 4
         spacing: 2
 
-        // ---------- Шапки колонок ----------
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: root.headerBand
@@ -457,11 +456,11 @@ ApplicationWindow {
                             Text { text: "Колонка " + (hdrRect.index + 1); font.pixelSize: 10; font.bold: true; color: root.ink; anchors.verticalCenter: parent.verticalCenter }
                             ToolButton { text: "+ параметр"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: traceDialog.openAdd(hdrRect.index) }
-                            ToolButton {
-                                text: (root.colRev, chartManager.columnLog(hdrRect.index)) ? "Log ✓" : "Log"
-                                font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
-                                onClicked: root.toggleColumnLog(hdrRect.index)
-                            }
+                            ToolButton { text: (root.colRev, chartManager.columnLog(hdrRect.index)) ? "Log ✓" : "Log"
+                                         font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
+                                         onClicked: root.toggleColumnLog(hdrRect.index) }
+                            ToolButton { text: "💬"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
+                                         onClicked: root.startComment(hdrRect.index) }
                             ToolButton { text: "×"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: chartManager.removeColumn(hdrRect.index) }
                         }
@@ -482,11 +481,11 @@ ApplicationWindow {
                                     Text {
                                         width: parent.width
                                         height: 14
-                                        font.pixelSize: 10
+                                        font.pixelSize: chartManager.headerFontPx
                                         font.bold: true
                                         color: modelData.color
                                         text: (root.tick, modelData.title + " = " +
-                                               Number(dataStore.value(modelData.sensorId)).toFixed(2))
+                                               root.fmtVal(Number(dataStore.value(modelData.sensorId)), hdrRect.index))
                                         elide: Text.ElideRight
                                     }
                                     Row {
@@ -501,8 +500,7 @@ ApplicationWindow {
                                                 width: (parent ? parent.width : 0) / 5
                                                 font.pixelSize: 7
                                                 color: "#8894A0"
-                                                horizontalAlignment: index === 0 ? Text.AlignLeft :
-                                                                     index === 4 ? Text.AlignRight : Text.AlignHCenter
+                                                horizontalAlignment: index === 0 ? Text.AlignLeft : index === 4 ? Text.AlignRight : Text.AlignHCenter
                                                 text: (modelData.min + (modelData.max - modelData.min) * index / 4).toFixed(1)
                                             }
                                         }
@@ -551,7 +549,6 @@ ApplicationWindow {
             }
         }
 
-        // ---------- Графики ----------
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -589,6 +586,7 @@ ApplicationWindow {
                         logScale: (root.colRev, chartManager.columnLog(colRect.index))
                         sharedMin: (root.colRev, chartManager.columnMin(colRect.index))
                         sharedMax: (root.colRev, chartManager.columnMax(colRect.index))
+                        comments: (root.colRev, chartManager.commentsOf(colRect.index))
                     }
 
                     MouseArea {
@@ -597,19 +595,30 @@ ApplicationWindow {
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onWheel: function(w) { root.scroll(w.angleDelta.y > 0 ? 1 : -1) }
                         onDoubleClicked: function(m) {
+                            if (m.button !== Qt.LeftButton) return
                             var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
-                            geoChart.addMarkerAt(pt.x, pt.y, chartManager.selectedSensor)
+                            var cid = geoChart.commentAt(pt.x, pt.y)
+                            if (cid >= 0) root.openCommentEdit(colRect.index, cid)
+                            else geoChart.addMarkerAt(pt.x, pt.y, chartManager.selectedSensor)
                         }
                         onClicked: function(m) {
+                            var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
                             if (m.button === Qt.RightButton) {
-                                var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
-                                geoChart.removeMarkerAt(pt.x, pt.y)
+                                if (!geoChart.removeMarkerAt(pt.x, pt.y)) {
+                                    var cid = geoChart.commentAt(pt.x, pt.y)
+                                    if (cid >= 0) { chartManager.removeComment(colRect.index, cid); root.toast("Комментарий удалён") }
+                                }
+                            } else if (m.button === Qt.LeftButton && root.commentCol === colRect.index) {
+                                var cc = geoChart.commentCoords(pt.x, pt.y)
+                                root.commentCol = -1
+                                root.openCommentAdd(colRect.index, cc[0], cc[1])
                             }
                         }
                     }
                 }
             }
         }
+
     }
 
     footer: Rectangle {
@@ -620,16 +629,9 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: 6
             spacing: 10
-            Label {
-                text: networkManager.connected ? "● Подключено" : "○ Отключено"
-                color: networkManager.connected ? root.ok : root.bad
-                font.pixelSize: 12
-            }
-            Label {
-                text: "Колесо — архив. Двойной клик — метка."
-                color: "#8894A0"
-                font.pixelSize: 11
-            }
+            Label { text: networkManager.connected ? "● Подключено" : "○ Отключено"
+                    color: networkManager.connected ? root.ok : root.bad; font.pixelSize: 12 }
+            Label { text: "Колесо — архив. Двойной клик — метка."; color: "#8894A0"; font.pixelSize: 11 }
             Label {
                 id: toastLabel
                 opacity: 0
@@ -660,8 +662,15 @@ ApplicationWindow {
         if (sensorCatalog.hasCsv()) root.applyCsvNames(false)
     }
 
+    Connections {
+        target: chartManager
+        function onConfigChanged() { root.syncWin(); root.colRev++; root.infosRev++ }
+    }
+
     SettingsDialog { id: settingsDialog }
     AboutDialog { id: aboutDialog }
+    TraceDialog { id: traceDialog }
+
     CfgDialog {
         id: cfgSave
         mode: "save"
@@ -684,102 +693,121 @@ ApplicationWindow {
             } else root.toast("Ошибка: " + chartManager.lastError())
         }
     }
-    Connections {
-        target: chartManager
-        function onConfigChanged() { root.syncWin(); root.colRev++ }
-    }
 
     Dialog {
         id: libSave
         title: "Сохранить в библиотеку профилей"
-        modal: true
-        width: 440
+        modal: true; width: 440
         anchors.centerIn: Overlay.overlay
         onAboutToShow: libName.text = "profile.cfg"
-        header: Rectangle {
-            implicitHeight: 42
-            color: root.ink
-            radius: 8
+        header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
-            Text { anchors.centerIn: parent; text: libSave.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true }
-        }
+            Text { anchors.centerIn: parent; text: libSave.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
         background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
         contentItem: ColumnLayout {
             spacing: 10
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                color: "#33424F"
-                font.pixelSize: 13
-                text: "Имя профиля (файл .cfg в папке profiles рядом с программой):"
-            }
-            TextField {
-                id: libName
-                Layout.fillWidth: true
-                font.pixelSize: 14
-                font.family: "Monospace"
-                color: root.ink
-                background: Rectangle {
-                    radius: 6
-                    color: libName.activeFocus ? "#FDF8EC" : "#FFFFFF"
-                    border.color: libName.activeFocus ? root.accent : root.line
-                }
-            }
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                color: "#6B7A88"
-                font.pixelSize: 11
-                text: "Файлы .cfg можно копировать на другие ПК и применять через «Загрузить .cfg…» или из библиотеки."
-            }
+            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
+                    text: "Имя профиля (файл .cfg в папке profiles рядом с программой):" }
+            TextField { id: libName; Layout.fillWidth: true; font.pixelSize: 14; font.family: "Monospace"; color: root.ink
+                        background: Rectangle { radius: 6; color: libName.activeFocus ? "#FDF8EC" : "#FFFFFF"; border.color: libName.activeFocus ? root.accent : root.line } }
+            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#6B7A88"; font.pixelSize: 11
+                    text: "Файлы .cfg можно копировать на другие ПК и применять через «Загрузить .cfg…» или из библиотеки." }
         }
         footer: DialogButtonBox {
-            Button {
-                text: "Сохранить"
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
                 onClicked: {
-                    if (chartManager.saveToLibrary(libName.text)) {
-                        root.profilesRev++
-                        root.toast("Профиль сохранён в библиотеку")
-                        libSave.close()
-                    } else root.toast("Ошибка: " + chartManager.lastError())
-                }
-            }
+                    if (chartManager.saveToLibrary(libName.text)) { root.profilesRev++; root.toast("Профиль сохранён в библиотеку"); libSave.close() }
+                    else root.toast("Ошибка: " + chartManager.lastError())
+                } }
             Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
     }
-    TraceDialog { id: traceDialog }
+
+    Dialog {
+        id: commentDialog
+        property int col: 0
+        property double t: 0
+        property double yFrac: 0
+        property int editId: -1
+        title: editId >= 0 ? "Комментарий" : "Новый комментарий"
+        modal: true; width: 420
+        anchors.centerIn: Overlay.overlay
+        header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
+            Text { anchors.centerIn: parent; text: commentDialog.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
+        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+        contentItem: TextArea {
+            id: commentText
+            wrapMode: TextArea.Wrap
+            font.pixelSize: 13
+            color: root.ink
+            background: Rectangle { color: "#FBFCFD"; border.color: root.line; radius: 6 }
+        }
+        footer: DialogButtonBox {
+            Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: {
+                    var txt = commentText.text.trim()
+                    if (txt === "") { commentDialog.close(); return }
+                    if (commentDialog.editId >= 0) chartManager.updateComment(commentDialog.col, commentDialog.editId, txt)
+                    else chartManager.addComment(commentDialog.col, commentDialog.t, commentDialog.yFrac, txt)
+                    commentDialog.close()
+                } }
+            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+    }
+
+    Dialog {
+        id: infoDialog
+        property int idx: 0
+        title: "Настройка информационного окна"
+        modal: true; width: 440
+        anchors.centerIn: Overlay.overlay
+        function openFor(i) {
+            idx = i
+            var inf = chartManager.infos()[i]
+            iTitle.text = inf.title; iSensor.value = inf.sensorId; iUnit.text = inf.unit; iDec.value = inf.decimals
+            open()
+        }
+        header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
+            Text { anchors.centerIn: parent; text: infoDialog.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
+        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+        contentItem: ColumnLayout {
+            spacing: 10
+            Label { text: "Заголовок:"; color: root.ink; font.pixelSize: 12 }
+            TextField { id: iTitle; Layout.fillWidth: true; font.pixelSize: 13 }
+            RowLayout {
+                spacing: 10
+                Label { text: "Датчик:"; color: root.ink; font.pixelSize: 12 }
+                SpinBox { id: iSensor; from: 0; to: 65535; Layout.preferredWidth: 110 }
+                Label { text: "Единицы:"; color: root.ink; font.pixelSize: 12 }
+                TextField { id: iUnit; Layout.preferredWidth: 70; font.pixelSize: 13 }
+                Label { text: "Знаков:"; color: root.ink; font.pixelSize: 12 }
+                SpinBox { id: iDec; from: 0; to: 6; Layout.preferredWidth: 90 }
+            }
+            Label { text: "Датчик 0 = окно не выводит значение (—)."; color: "#8894A0"; font.pixelSize: 11 }
+        }
+        footer: DialogButtonBox {
+            Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: { chartManager.setInfo(infoDialog.idx, iSensor.value, iTitle.text, iUnit.text, iDec.value); infoDialog.close() } }
+            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+    }
 
     Dialog {
         id: resetConfirm
         title: "Сброс настроек отображения"
-        modal: true
-        width: 430
+        modal: true; width: 430
         anchors.centerIn: Overlay.overlay
-        header: Rectangle {
-            implicitHeight: 42
-            color: root.ink
-            radius: 8
+        header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
-            Text { anchors.centerIn: parent; text: resetConfirm.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true }
-        }
+            Text { anchors.centerIn: parent; text: resetConfirm.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
         background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
-        contentItem: Label {
-            wrapMode: Text.Wrap
-            color: "#33424F"
-            font.pixelSize: 13
-            text: "Колонки, параметры, цвета и диапазоны будут заменены стандартным набором. Продолжить?"
-        }
+        contentItem: Label { wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
+                             text: "Колонки, параметры, цвета и диапазоны будут заменены стандартным набором. Продолжить?" }
         footer: DialogButtonBox {
-            Button {
-                text: "Сбросить"
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: {
-                    chartManager.resetToDefaults()
-                    root.toast("Настройки отображения сброшены к стандартным")
-                    resetConfirm.close()
-                }
-            }
+            Button { text: "Сбросить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: { chartManager.resetToDefaults(); root.toast("Настройки отображения сброшены к стандартным"); resetConfirm.close() } }
             Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
     }

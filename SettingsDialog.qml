@@ -6,7 +6,8 @@ Dialog {
     id: dlg
     title: "Настройки подключения"
     modal: true
-    width: 470
+    width: 640
+    height: 620
     anchors.centerIn: Overlay.overlay
     closePolicy: Popup.CloseOnEscape
 
@@ -33,8 +34,15 @@ Dialog {
     }
     background: Rectangle { color: "#FFFFFF"; border.color: dlg.win.line; radius: 8 }
 
-    contentItem: ColumnLayout {
-        spacing: 12
+    contentItem: Flickable {
+        clip: true
+        contentHeight: settingsCol.implicitHeight + 24
+        flickableDirection: Flickable.VerticalFlick
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ColumnLayout {
+            id: settingsCol
+            width: parent.width
+            spacing: 12
 
         Label {
             text: "IP-адрес удалённого ПК (сервер GeoSight):"
@@ -89,6 +97,30 @@ Dialog {
                 Layout.preferredWidth: 110
             }
         }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            Label { text: "Длина свечи:"; color: dlg.win.ink; font.pixelSize: 12 }
+            SpinBox {
+                from: 1; to: 100
+                value: chartManager.standLength
+                onValueModified: chartManager.standLength = value
+                Layout.preferredWidth: 100
+                editable: true
+            }
+            Label { text: "м  (для расчёта числа спущенных свечей)"; color: "#8894A0"; font.pixelSize: 11 }
+            Item { Layout.fillWidth: true }
+            Label { text: "Шрифт шапки:"; color: dlg.win.ink; font.pixelSize: 12 }
+            SpinBox {
+                from: 6; to: 24
+                value: chartManager.headerFontPx
+                onValueModified: chartManager.headerFontPx = value
+                Layout.preferredWidth: 90
+                editable: true
+            }
+            Label { text: "px"; color: "#8894A0"; font.pixelSize: 11 }
+            Item { Layout.fillWidth: true }
+        }
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 74
@@ -104,6 +136,7 @@ Dialog {
                 Label { text: "рядом с исполняемым файлом программы."; color: "#6B7A88"; font.pixelSize: 11 }
             }
         }
+            }
     }
 
     footer: DialogButtonBox {
