@@ -35,7 +35,10 @@ ApplicationWindow {
 
     function wheelStep() { return Math.max(30, chartManager.timeWindow / 10) }
     function scroll(dir) {
-        chartManager.viewOffset = Math.max(0, Math.min(96 * 3600,
+        // не уходим дальше начала накопленного буфера
+        var maxOff = Math.max(0, dataStore.bufferedHours() * 3600 - chartManager.timeWindow)
+        maxOff = Math.min(maxOff, 96 * 3600)
+        chartManager.viewOffset = Math.max(0, Math.min(maxOff,
             chartManager.viewOffset + dir * root.wheelStep()))
     }
     function fmtVal(v, col) {
@@ -771,7 +774,7 @@ ApplicationWindow {
                     onTriggered: {
                         var age = dataStore.secondsSinceUpdate()
                         srvLabel.text = age < 0 ? "Сервер: нет данных"
-                            : "Время сервера: " + dataStore.serverTimeString() + "  (срез " + Math.round(age) + " с назад)"
+                            : "Время сервера: " + dataStore.serverTimeString() + "  (срез " + Math.round(age) + " с назад)  ·  буфер " + dataStore.bufferedHours().toFixed(1) + " ч"
                     }
                 }
             }
