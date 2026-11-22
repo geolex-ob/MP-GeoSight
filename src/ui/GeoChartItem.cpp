@@ -6,6 +6,9 @@
 #include <QVector>
 #include <QPair>
 #include <QFont>
+#include <QDate>
+#include <QDateTime>
+#include <QTimeZone>
 #include <limits>
 #include <cmath>
 
@@ -181,11 +184,21 @@ void GeoChartItem::paint(QPainter *p)
     }
     if (tEnd > 0) {
         const double step = minuteStep(m_window, ph);
+        QDate prevDay;
+        bool havePrevDay = false;
         for (double t = qCeil(tStart / step) * step; t <= tEnd; t += step) {
             const double y = Y(t);
             if (!std::isfinite(y)) continue;
+            const QDate day = QDateTime::fromSecsSinceEpoch(qint64(t), QTimeZone::UTC).date();
+            const bool newDay = havePrevDay && day != prevDay;
+            p->setPen(QPen(newDay ? QColor("#8FA1B0") : QColor("#BBBBBB"),
+                           newDay ? 1.0 : 0.6,
+                           newDay ? Qt::SolidLine : Qt::DashLine));
             p->drawLine(QPointF(padL, y), QPointF(padL + pw, y));
+            prevDay = day;
+            havePrevDay = true;
         }
+        p->setPen(grid);
     }
 
     if (!m_store || tEnd <= 0) return;

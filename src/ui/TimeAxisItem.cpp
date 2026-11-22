@@ -3,9 +3,9 @@
 #include <QQuickWindow>
 #include <QDateTime>
 #include <QTimeZone>
-#include <QVector>
-#include <algorithm>
+#include <QDate>
 #include <cmath>
+#include <algorithm>
 
 static qreal dprOf(const QQuickItem *item)
 {
@@ -14,16 +14,14 @@ static qreal dprOf(const QQuickItem *item)
     return d > 0 ? d : 1.0;
 }
 
-// Единый шаг отметок для шкалы и сетки графиков.
-// Высота надписи ~11 px; шаг подбирается так, чтобы между соседними
-// надписями оставалось >= 22 px свободного места (две высоты надписи).
+// шаг отметок: зазор между соседними надписями >= двух высот надписи
 static double tickStep(double windowSec, double pixHeight)
 {
     static const double steps[] = {1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900,
                                    1800, 3600, 7200, 10800, 14400, 21600, 43200, 86400};
-    const double minPitch = 33.0;   // 11 px надпись + 22 px зазор
-    for (double s : steps)
-        if (pixHeight * s / windowSec >= minPitch) return s;
+    const double minPitch = 33.0;
+    for (double st : steps)
+        if (pixHeight * st / windowSec >= minPitch) return st;
     return 86400.0;
 }
 
@@ -89,27 +87,26 @@ void TimeAxisItem::paint(QPainter *p)
     const QRectF r = boundingRect();
     p->fillRect(r, QColor("#F2F5F7"));
     p->setRenderHint(QPainter::TextAntialiasing);
+    p->setBrush(Qt::NoBrush);
 
-    const double padT = 4, padB = 18;
+    const double padT = 4, padB = 16;
     const double ph = r.height() - padT - padB;
-    const double colSplit = 40.0;          // граница колонок «глубина | время»
     if (!std::isfinite(ph) || ph <= 10 || !m_store) return;
     const double tEnd = m_store->lastEpoch() - m_offset;
     if (tEnd <= 0) return;
     const double tStart = tEnd - m_window;
     auto Y = [&](double t){ return padT + (t - tStart) / m_window * ph; };
 
-    // разделитель колонок и рамка
+    const double colSplit = 40.0;
     p->setPen(QPen(QColor("#D5DDE3"), 1));
     p->drawLine(QPointF(colSplit, padT), QPointF(colSplit, padT + ph));
-    p->drawLine(QPointF(r.width() - 1, padT), QPointF(r.width() - 1, padT + ph));
 
     QFont f = p->font();
     f.setPixelSize(9);
     p->setFont(f);
 
     const QVector<Sample> ds = m_store->snapshot(uint16_t(m_depth));
-    auto depthAt = [&](double t) -> double {
+    auto depthAt = [&](double t)->double {
         if (ds.isEmpty()) return 0.0;
         auto it = std::lower_bound(ds.begin(), ds.end(), t,
                                    [](const Sample &s, double tt){ return s.t < tt; });
@@ -120,22 +117,41 @@ void TimeAxisItem::paint(QPainter *p)
     };
 
     const double step = tickStep(m_window, ph);
+    QDate prevDate;
+    bool havePrev = false;
+
     for (double t = std::ceil(tStart / step) * step; t <= tEnd + 1e-9; t += step) {
         const double y = Y(t);
         if (!std::isfinite(y)) continue;
-
-        // горизонтальная риска только в колонке времени (не пересекает надписи глубины)
-        p->setPen(QPen(QColor("#C4CED6"), 0.6, Qt::DashLine));
-        p->drawLine(QPointF(colSplit + 1, y), QPointF(r.width() - 2, y));
-
-        // время — левый край своей колонки, строго по центру строки
         const QDateTime dt = QDateTime::fromSecsSinceEpoch(qint64(t), QTimeZone::UTC);
+        const bool newDay = havePrev && dt.date() != prevDate;
+
+        // риска: граница суток — сплошная и заметнее
+        p->setPen(QPen(newDay ? QColor("#8FA1B0") : QColor("#C4CED6"),
+                       newDay ? 1.0 : 0.6,
+                       newDay ? Qt::SolidLine : Qt::DashLine));
+        p->drawLine(QPointF(colSplit, y), QPointF(r.width() - 2, y));
+
+        // время
         const QString ts = step < 60 ? dt.toString("hh:mm:ss") : dt.toString("hh:mm");
         p->setPen(QColor("#33424F"));
-        p->drawText(QRectF(colSplit + 4, y - 6, r.width() - colSplit - 6, 12),
+        p->drawText(QRectF(colSplit + 4, y - 7, r.width() - colSplit - 6, 14),
                     Qt::AlignLeft | Qt::AlignVCenter, ts);
 
-        // глубина забоя — у КАЖДОЙ метки времени, в своей колонке слева
+        // ДАТА новых суток: следующей строкой после времени, один раз в сутки
+        if (newDay) {
+            QFont fd = f;
+            fd.setBold(true);
+            p->setFont(fd);
+            p->setPen(QColor("#12314E"));
+            p->drawText(QRectF(colSplit + 4, y + 5, r.width() - colSplit - 6, 12),
+                        Qt::AlignLeft | Qt::AlignVCenter, dt.toString("dd.MM.yy"));
+            p->setFont(f);
+        }
+        prevDate = dt.date();
+        havePrev = true;
+
+        // глубина забоя у каждой метки времени (своя колонка слева)
         const double dv = depthAt(t);
         const QString dstr = QString::number(dv, 'f', dv >= 1000 ? 0 : (dv >= 100 ? 1 : 2));
         p->setPen(QPen(QColor("#12314E"), 1));
@@ -145,19 +161,20 @@ void TimeAxisItem::paint(QPainter *p)
         p->drawLine(QPointF(colSplit - 3, y), QPointF(colSplit, y));
     }
 
-    // нижняя строка: текущие глубина и время сервера
-    const double yb = padT + ph + 2;
+    // нижняя строка: текущие глубина и время
     p->setPen(QPen(QColor("#B9C4CE"), 1));
-    p->drawLine(QPointF(2, yb), QPointF(r.width() - 2, yb));
+    p->drawLine(QPointF(2, padT + ph + 2), QPointF(r.width() - 2, padT + ph + 2));
     QFont fb = f;
     fb.setBold(true);
     p->setFont(fb);
-    const double dNow = m_store->latest(uint16_t(m_depth));
+    const double yb = r.height() - 8;
+    const double dvNow = m_store->latest(uint16_t(m_depth));
     p->setPen(QColor("#12314E"));
-    p->drawText(QRectF(2, yb + 1, colSplit - 6, 14), Qt::AlignRight | Qt::AlignVCenter,
-                QString::number(dNow, 'f', dNow >= 100 ? 1 : 2));
-    p->setPen(m_offset > 0 ? QColor("#C22B2B") : QColor("#1D8A4E"));
-    p->drawText(QRectF(colSplit + 4, yb + 1, r.width() - colSplit - 6, 14),
+    p->drawText(QRectF(2, yb - 7, colSplit - 6, 14), Qt::AlignRight | Qt::AlignVCenter,
+                QString::number(dvNow, 'f', dvNow >= 1000 ? 1 : 2));
+    p->setPen(QColor("#28517A"));
+    p->drawText(QRectF(colSplit + 4, yb - 7, r.width() - colSplit - 6, 14),
                 Qt::AlignLeft | Qt::AlignVCenter,
                 QDateTime::fromSecsSinceEpoch(qint64(tEnd), QTimeZone::UTC).toString("hh:mm:ss"));
+    p->setFont(f);
 }
