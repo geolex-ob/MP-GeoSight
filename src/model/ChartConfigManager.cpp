@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <cmath>
 
 ChartConfigManager::ChartConfigManager(QObject *parent) : QAbstractListModel(parent)
 {
@@ -27,6 +28,8 @@ void ChartConfigManager::load()
         if (m_bitSensor == 102 && !root.value("bitSensorMigrated").toBool(false))
             m_bitSensor = 115;
         m_standLength = root.value("standLength").toInt(25);
+        m_standsMode = root.value("standsMode").toInt(0);
+        m_standsSensor = root.value("standsSensor").toInt(111);
         if (m_standLength < 1) m_standLength = 25;
         m_headerFont = root.value("headerFont").toInt(10);
         if (m_headerFont < 6) m_headerFont = 6;
@@ -48,6 +51,8 @@ void ChartConfigManager::load()
                 c.log = co.value("log").toBool(false);
                 c.lo = co.value("min").toDouble(0.0001);
                 c.hi = co.value("max").toDouble(10);
+                c.weight = co.value("weight").toDouble(1.0);
+                if (!std::isfinite(c.weight) || c.weight <= 0.01) c.weight = 1.0;
                 traceArr = co.value("traces").toArray();
                 for (const QJsonValue &cv2 : co.value("comments").toArray()) {
                     const QJsonObject o = cv2.toObject();
@@ -110,6 +115,8 @@ void ChartConfigManager::save()
     root["bitSensor"] = m_bitSensor;
     root["bitSensorMigrated"] = true;
     root["standLength"] = m_standLength;
+    root["standsMode"] = m_standsMode;
+    root["standsSensor"] = m_standsSensor;
     root["headerFont"] = m_headerFont;
     QJsonArray infosArr;
     for (const InfoPanel &ip : m_infos) {
@@ -149,6 +156,7 @@ void ChartConfigManager::save()
         co["max"] = c.hi;
         co["traces"] = ts;
         co["comments"] = cms;
+        co["weight"] = c.weight;
         cols.append(co);
     }
     root["columns"] = cols;
@@ -523,4 +531,47 @@ void ChartConfigManager::setInfo(int i, int sensorId, const QString &title, cons
     m_infos[i].decimals = qBound(0, decimals, 6);
     save();
     emit configChanged();
+}
+
+void ChartConfigManager::setStandsMode(int m)
+{
+    if (m < 0) m = 0;
+    if (m > 2) m = 2;
+    if (m == m_standsMode) return;
+    m_standsMode = m;
+    save();
+    emit configChanged();
+}
+
+void ChartConfigManager::setStandsSensorId(int id)
+{
+    if (id == m_standsSensor) return;
+    m_standsSensor = id;
+    save();
+    emit configChanged();
+}
+
+double ChartConfigManager::columnWeight(int col) const
+{
+    return (col >= 0 && col < m_cols.size()) ? m_cols[col].weight : 1.0;
+}
+void ChartConfigManager::setColumnWeight(int col, double w)
+{
+    if (col < 0 || col >= m_cols.size()) return;
+    if (!std::isfinite(w)) return;          // защита от Infinity/NaN при drag
+    if (w < 0.05) w = 0.05;
+    if (w > 10000) w = 10000;
+    m_cols[col].weight = w;
+    emit configChanged();
+}
+void ChartConfigManager::moveComment(int col, int id, double t, double yFrac)
+{
+    if (col < 0 || col >= m_cols.size()) return;
+    for (Comment &c : m_cols[col].comments) {
+        if (c.id != id) continue;
+        c.t = t;
+        c.yFrac = qBound(0.0, yFrac, 1.0);
+        emit configChanged();
+        return;
+    }
 }

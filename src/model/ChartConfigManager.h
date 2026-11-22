@@ -33,6 +33,7 @@ struct Column {
     double lo = 0.0001;
     double hi = 10;
     QVector<Comment> comments;
+    double weight = 1.0;
 };
 
 class ChartConfigManager : public QAbstractListModel
@@ -45,6 +46,8 @@ class ChartConfigManager : public QAbstractListModel
     Q_PROPERTY(int viewOffset READ viewOffset WRITE setViewOffset NOTIFY viewOffsetChanged)
     Q_PROPERTY(int selectedSensor READ selectedSensor WRITE setSelectedSensor NOTIFY selectedChanged)
     Q_PROPERTY(int standLength READ standLength WRITE setStandLength NOTIFY configChanged)
+    Q_PROPERTY(int standsMode READ standsMode WRITE setStandsMode NOTIFY configChanged)
+    Q_PROPERTY(int standsSensorId READ standsSensorId WRITE setStandsSensorId NOTIFY configChanged)
     Q_PROPERTY(int headerFontPx READ headerFontPx WRITE setHeaderFontPx NOTIFY configChanged)
 
 public:
@@ -69,6 +72,10 @@ public:
     void setSelectedSensor(int id);
     int standLength() const { return m_standLength; }
     void setStandLength(int m);
+    int standsMode() const { return m_standsMode; }
+    void setStandsMode(int m);
+    int standsSensorId() const { return m_standsSensor; }
+    void setStandsSensorId(int id);
     int headerFontPx() const { return m_headerFont; }
     void setHeaderFontPx(int px);
 
@@ -91,6 +98,9 @@ public:
     Q_INVOKABLE double columnMax(int col) const;
     Q_INVOKABLE void setColumnLog(int col, bool on);
     Q_INVOKABLE void setColumnRange(int col, double mn, double mx);
+    Q_INVOKABLE double columnWeight(int col) const;
+    Q_INVOKABLE void setColumnWeight(int col, double w);
+    Q_INVOKABLE void moveComment(int col, int id, double t, double yFrac);
     Q_INVOKABLE QVariantList commentsOf(int col) const;
     Q_INVOKABLE int addComment(int col, double t, double yFrac, const QString &text);
     Q_INVOKABLE void updateComment(int col, int id, const QString &text);
@@ -122,6 +132,8 @@ private:
     int m_viewOffset = 0;
     int m_selectedSensor = 0;
     int m_standLength = 25;
+    int m_standsMode = 0;
+    int m_standsSensor = 111;
     int m_headerFont = 10;
     int m_nextCommentId = 1;
     QString m_lastError;
