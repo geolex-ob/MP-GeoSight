@@ -19,8 +19,9 @@ ApplicationWindow {
     readonly property color line: "#B9C4CE"
     readonly property color ok: "#1D8A4E"
     readonly property color bad: "#C22B2B"
-    readonly property int gutterW: 92
+    property int gutterW: timeAxis.preferredWidth
     readonly property int colGap: 2
+    readonly property int sbW: 14
 
     property int tick: 0
     property int profilesRev: 0
@@ -34,10 +35,12 @@ ApplicationWindow {
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.tick++ }
 
     function wheelStep() { return Math.max(30, chartManager.timeWindow / 10) }
+    function maxOffset() {
+        return Math.min(96 * 3600, Math.max(0, dataStore.bufferedHours() * 3600 - chartManager.timeWindow))
+    }
     function scroll(dir) {
         // не уходим дальше начала накопленного буфера
-        var maxOff = Math.max(0, dataStore.bufferedHours() * 3600 - chartManager.timeWindow)
-        maxOff = Math.min(maxOff, 96 * 3600)
+        var maxOff = root.maxOffset()
         chartManager.viewOffset = Math.max(0, Math.min(maxOff,
             chartManager.viewOffset + dir * root.wheelStep()))
     }
@@ -135,7 +138,7 @@ ApplicationWindow {
     // ---------- геометрия колонок: сумма ширин = ширине контейнера ----------
     function availWidth() {
         var n = Math.max(1, chartManager.rowCount())
-        var a = chartsHost.width - root.gutterW - root.colGap * n
+        var a = chartsHost.width - root.gutterW - root.colGap * n - root.sbW
         return (isFinite(a) && a > 0) ? a : 100 * n
     }
     function sumWeights() {
@@ -615,13 +618,98 @@ ApplicationWindow {
             Layout.minimumHeight: 200
 
             TimeAxis {
+                id: timeAxis
                 x: 0; y: 0
                 width: root.gutterW
                 height: parent.height
+                fontPx: Math.max(9, chartManager.headerFontPx - 3)
                 store: dataStore
                 windowSeconds: chartManager.timeWindow
                 depthSensorId: chartManager.depthSensorId
                 offsetSeconds: chartManager.viewOffset
+            }
+
+            Item {
+                id: archiveScroll
+                z: 5
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: root.sbW
+
+                property real maxOff: (root.tick, root.maxOffset())
+                property real trackTop: root.sbW
+                property real trackH: Math.max(1, parent.height - 2 * root.sbW)
+                property real frac: maxOff > 0 ? Math.min(1, chartManager.viewOffset / maxOff) : 0
+                property real thumbH: Math.max(28, trackH * (maxOff > 0 ? chartManager.timeWindow / (maxOff + chartManager.timeWindow) : 1))
+                property real thumbY: trackTop + (1 - frac) * (trackH - thumbH)
+
+                Rectangle {
+                    x: 2; y: archiveScroll.trackTop
+                    width: root.sbW - 4
+                    height: archiveScroll.trackH
+                    radius: (root.sbW - 4) / 2
+                    color: "#E3E8EC"
+                    border.color: root.line
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: function(m) {
+                            var range = archiveScroll.trackH - archiveScroll.thumbH
+                            if (range <= 0) return
+                            var f = (m.y - archiveScroll.thumbH / 2) / range
+                            chartManager.viewOffset = Math.max(0, Math.min(archiveScroll.maxOff, (1 - f) * archiveScroll.maxOff))
+                        }
+                    }
+                }
+                Rectangle {
+                    x: 0; y: 0; width: root.sbW; height: root.sbW
+                    color: upMa.pressed ? root.accent : (upMa.containsMouse ? "#FDF3DC" : "transparent")
+                    Text { anchors.centerIn: parent; text: "▲"; font.pixelSize: 8; color: root.inkSoft }
+                    MouseArea { id: upMa; anchors.fill: parent; hoverEnabled: true; onClicked: root.scroll(1) }
+                }
+                Rectangle {
+                    x: 0; y: parent.height - root.sbW; width: root.sbW; height: root.sbW
+                    color: dnMa.pressed ? root.accent : (dnMa.containsMouse ? "#FDF3DC" : "transparent")
+                    Text { anchors.centerIn: parent; text: "▼"; font.pixelSize: 8; color: root.inkSoft }
+                    MouseArea { id: dnMa; anchors.fill: parent; hoverEnabled: true; onClicked: root.scroll(-1) }
+                }
+                Rectangle {
+                    id: sbThumb
+                    x: 2
+                    y: archiveScroll.thumbY
+                    width: root.sbW - 4
+                    height: archiveScroll.thumbH
+                    radius: (root.sbW - 4) / 2
+                    color: sbDrag.active ? root.accent : (sbHover.containsMouse ? root.inkSoft : "#9FB0BF")
+                    border.color: root.ink
+                    border.width: 1
+                    MouseArea { id: sbHover; anchors.fill: parent; hoverEnabled: true
+                                acceptedButtons: Qt.NoButton; cursorShape: Qt.SizeVerCursor }
+                    DragHandler {
+                        id: sbDrag
+                        target: null
+                        property real startOffset: 0
+                        onActiveChanged: { if (active) startOffset = chartManager.viewOffset }
+                        onCentroidChanged: {
+                            if (!active) return
+                            var range = archiveScroll.trackH - archiveScroll.thumbH
+                            if (range <= 0) return
+                            var dy = centroid.position.y - centroid.pressPosition.y
+                            var off = startOffset - dy / range * archiveScroll.maxOff
+                            chartManager.viewOffset = Math.max(0, Math.min(archiveScroll.maxOff, off))
+                        }
+                    }
+                }
+                Rectangle {
+                    visible: chartManager.viewOffset > 0
+                    anchors.right: parent.left
+                    anchors.rightMargin: 4
+                    y: archiveScroll.thumbY
+                    width: 64; height: 18; radius: 4
+                    color: root.ink
+                    Text { anchors.centerIn: parent; color: "#FFFFFF"; font.pixelSize: 10; font.family: "Monospace"
+                           text: "−" + (chartManager.viewOffset / 60).toFixed(0) + "м" }
+                }
             }
 
             Repeater {
@@ -640,7 +728,7 @@ ApplicationWindow {
                     GeoChart {
                         id: geoChart
                         anchors.fill: parent
-                        anchors.margins: 1
+                        anchors.margins: 0
                         store: dataStore
                         traces: colRect.modelData
                         windowSeconds: chartManager.timeWindow
