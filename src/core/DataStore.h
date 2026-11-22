@@ -27,6 +27,7 @@ public:
     Q_INVOKABLE double secondsSinceUpdate() const;
     Q_INVOKABLE double lastEpoch() const;
     Q_INVOKABLE QVariantList rangeOf(int id);
+    Q_INVOKABLE double bufferedHours() const;
     Q_INVOKABLE int standsCount(int depthId, int bitId, int standLength, int mode) const;
     void setTrackedSensors(const QVariantList &ids);
 
@@ -43,6 +44,6 @@ private:
     QSet<int> m_tracked;
     bool m_dirty = false;
     QTimer m_frameTimer;
-    int m_capacity = 250000;   // ~96ч при 0.5 срез/с
-    double m_keepSeconds = 345600;
+    int m_capacity = 200000;   // ~96 ч при 0.5 срез/с   // ~96ч при 0.5 срез/с
+    double m_keepSeconds = 345600;   // 96 ч
 };

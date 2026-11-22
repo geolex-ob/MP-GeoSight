@@ -124,3 +124,12 @@ int DataStore::standsCount(int depthId, int bitId, int standLength, int mode) co
     if (base < 0.5) return 0;
     return int(base / standLength);
 }
+
+double DataStore::bufferedHours() const
+{
+    QMutexLocker locker(&m_mutex);
+    if (m_data.isEmpty()) return 0.0;
+    const QVector<Sample> &buf = m_data.constBegin().value();
+    if (buf.size() < 2) return 0.0;
+    return (buf.last().t - buf.first().t) / 3600.0;
+}
