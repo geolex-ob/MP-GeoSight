@@ -9,6 +9,8 @@ class TimeAxisItem : public QQuickPaintedItem
     Q_PROPERTY(int windowSeconds READ windowSeconds WRITE setWindowSeconds NOTIFY paramsChanged)
     Q_PROPERTY(int depthSensorId READ depthSensorId WRITE setDepthSensorId NOTIFY paramsChanged)
     Q_PROPERTY(int offsetSeconds READ offsetSeconds WRITE setOffsetSeconds NOTIFY paramsChanged)
+    Q_PROPERTY(int fontPx READ fontPx WRITE setFontPx NOTIFY paramsChanged)
+    Q_PROPERTY(int preferredWidth READ preferredWidth NOTIFY paramsChanged)
 
 public:
     explicit TimeAxisItem(QQuickItem *parent = nullptr);
@@ -22,6 +24,9 @@ public:
     void setDepthSensorId(int v);
     int offsetSeconds() const { return m_offset; }
     void setOffsetSeconds(int v);
+    int fontPx() const { return m_fontPx; }
+    void setFontPx(int px);
+    int preferredWidth() const { return m_preferredWidth; }
 
 signals:
     void storeChanged();
@@ -32,8 +37,13 @@ protected:
 
 private:
     void syncTextureSize();
+    void recomputeWidth();
     DataStore *m_store = nullptr;
     int m_window = 900;
     int m_depth = 101;
     int m_offset = 0;
+    int m_fontPx = 9;
+    int m_preferredWidth = 92;
+    double m_depthTextW = 34;
+    double m_timeTextW = 46;
 };

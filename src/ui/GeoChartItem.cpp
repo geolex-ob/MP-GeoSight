@@ -186,7 +186,7 @@ void GeoChartItem::paint(QPainter *p)
         const double step = minuteStep(m_window, ph);
         QDate prevDay;
         bool havePrevDay = false;
-        for (double t = qCeil(tStart / step) * step; t <= tEnd; t += step) {
+        for (double t = qCeil(tStart / step) * step; t <= tEnd + 1e-9; t += step) {
             const double y = Y(t);
             if (!std::isfinite(y)) continue;
             const QDate day = QDateTime::fromSecsSinceEpoch(qint64(t), QTimeZone::UTC).date();

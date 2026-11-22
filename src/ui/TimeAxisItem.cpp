@@ -4,6 +4,8 @@
 #include <QDateTime>
 #include <QTimeZone>
 #include <QDate>
+#include <QFont>
+#include <QFontMetrics>
 #include <cmath>
 #include <algorithm>
 
@@ -14,7 +16,6 @@ static qreal dprOf(const QQuickItem *item)
     return d > 0 ? d : 1.0;
 }
 
-// шаг отметок: зазор между соседними надписями >= двух высот надписи
 static double tickStep(double windowSec, double pixHeight)
 {
     static const double steps[] = {1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900,
@@ -29,6 +30,26 @@ TimeAxisItem::TimeAxisItem(QQuickItem *parent) : QQuickPaintedItem(parent)
 {
     setRenderTarget(QQuickPaintedItem::Image);
     setOpaquePainting(true);
+    recomputeWidth();
+}
+
+// ширина = только необходимые данные (забой до 0.1 + время), без минимального порога
+void TimeAxisItem::recomputeWidth()
+{
+    QFont f;
+    f.setPixelSize(m_fontPx);
+    const QFontMetrics fm(f);
+    const double dv = m_store ? m_store->latest(uint16_t(m_depth)) : 0.0;
+    m_depthTextW = double(fm.horizontalAdvance(QString::number(dv, 'f', 1)));
+    double ph = height() - 4 - 10;
+    if (!(ph > 10)) ph = 100;
+    const double step = tickStep(m_window, ph);
+    m_timeTextW = double(fm.horizontalAdvance(step < 60 ? "00:00:00" : "00:00"));
+    const int w = int(std::ceil(2 + m_depthTextW + m_timeTextW + 4));
+    if (w != m_preferredWidth) {
+        m_preferredWidth = w;
+        emit paramsChanged();
+    }
 }
 
 void TimeAxisItem::syncTextureSize()
@@ -43,6 +64,7 @@ void TimeAxisItem::syncTextureSize()
 void TimeAxisItem::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
+    recomputeWidth();
     if (newGeometry.size() != oldGeometry.size()) syncTextureSize();
 }
 
@@ -52,9 +74,11 @@ void TimeAxisItem::setStore(DataStore *s)
     if (m_store) disconnect(m_store, nullptr, this, nullptr);
     m_store = s;
     if (m_store) connect(m_store, &DataStore::frameReady, this, [this]{
+        recomputeWidth();
         if (isVisible()) { syncTextureSize(); update(); }
     });
     emit storeChanged();
+    recomputeWidth();
     update();
 }
 
@@ -62,6 +86,7 @@ void TimeAxisItem::setWindowSeconds(int v)
 {
     if (m_window == v) return;
     m_window = v;
+    recomputeWidth();
     emit paramsChanged();
     update();
 }
@@ -70,6 +95,7 @@ void TimeAxisItem::setDepthSensorId(int v)
 {
     if (m_depth == v) return;
     m_depth = v;
+    recomputeWidth();
     emit paramsChanged();
     update();
 }
@@ -82,6 +108,16 @@ void TimeAxisItem::setOffsetSeconds(int v)
     update();
 }
 
+void TimeAxisItem::setFontPx(int px)
+{
+    if (px < 9) px = 9;
+    if (px == m_fontPx) return;
+    m_fontPx = px;
+    recomputeWidth();
+    emit paramsChanged();
+    update();
+}
+
 void TimeAxisItem::paint(QPainter *p)
 {
     const QRectF r = boundingRect();
@@ -89,7 +125,7 @@ void TimeAxisItem::paint(QPainter *p)
     p->setRenderHint(QPainter::TextAntialiasing);
     p->setBrush(Qt::NoBrush);
 
-    const double padT = 4, padB = 16;
+    const double padT = 4, padB = 10;
     const double ph = r.height() - padT - padB;
     if (!std::isfinite(ph) || ph <= 10 || !m_store) return;
     const double tEnd = m_store->lastEpoch() - m_offset;
@@ -97,13 +133,15 @@ void TimeAxisItem::paint(QPainter *p)
     const double tStart = tEnd - m_window;
     auto Y = [&](double t){ return padT + (t - tStart) / m_window * ph; };
 
-    const double colSplit = 40.0;
+    const double pad = 1;
+    const double colSplit = pad + m_depthTextW + 2;
     p->setPen(QPen(QColor("#D5DDE3"), 1));
     p->drawLine(QPointF(colSplit, padT), QPointF(colSplit, padT + ph));
 
     QFont f = p->font();
-    f.setPixelSize(9);
+    f.setPixelSize(m_fontPx);
     p->setFont(f);
+    const QFontMetrics fm(f);
 
     const QVector<Sample> ds = m_store->snapshot(uint16_t(m_depth));
     auto depthAt = [&](double t)->double {
@@ -119,6 +157,8 @@ void TimeAxisItem::paint(QPainter *p)
     const double step = tickStep(m_window, ph);
     QDate prevDate;
     bool havePrev = false;
+    const double timeX = colSplit + 2;
+    const double timeW = r.width() - pad - timeX;
 
     for (double t = std::ceil(tStart / step) * step; t <= tEnd + 1e-9; t += step) {
         const double y = Y(t);
@@ -126,55 +166,40 @@ void TimeAxisItem::paint(QPainter *p)
         const QDateTime dt = QDateTime::fromSecsSinceEpoch(qint64(t), QTimeZone::UTC);
         const bool newDay = havePrev && dt.date() != prevDate;
 
-        // риска: граница суток — сплошная и заметнее
         p->setPen(QPen(newDay ? QColor("#8FA1B0") : QColor("#C4CED6"),
                        newDay ? 1.0 : 0.6,
                        newDay ? Qt::SolidLine : Qt::DashLine));
-        p->drawLine(QPointF(colSplit, y), QPointF(r.width() - 2, y));
+        p->drawLine(QPointF(colSplit, y), QPointF(r.width() - pad, y));
 
-        // время
         const QString ts = step < 60 ? dt.toString("hh:mm:ss") : dt.toString("hh:mm");
         p->setPen(QColor("#33424F"));
-        p->drawText(QRectF(colSplit + 4, y - 7, r.width() - colSplit - 6, 14),
-                    Qt::AlignLeft | Qt::AlignVCenter, ts);
+        p->drawText(QRectF(timeX, y - 7, timeW, 14), Qt::AlignRight | Qt::AlignVCenter, ts);
 
-        // ДАТА новых суток: следующей строкой после времени, один раз в сутки
+        // дата новых суток: если не помещается — уменьшаем шрифт до помещения
         if (newDay) {
+            const QString dstr = dt.toString("dd.MM.yy");
             QFont fd = f;
             fd.setBold(true);
+            int px = m_fontPx;
+            double adv = QFontMetrics(fd).horizontalAdvance(dstr);
+            if (adv > timeW && adv > 0) {
+                px = qMax(6, int(m_fontPx * timeW / adv));
+                fd.setPixelSize(px);
+            }
             p->setFont(fd);
             p->setPen(QColor("#12314E"));
-            p->drawText(QRectF(colSplit + 4, y + 5, r.width() - colSplit - 6, 12),
-                        Qt::AlignLeft | Qt::AlignVCenter, dt.toString("dd.MM.yy"));
+            p->drawText(QRectF(timeX, y + 5, timeW, 12), Qt::AlignRight | Qt::AlignVCenter, dstr);
             p->setFont(f);
         }
         prevDate = dt.date();
         havePrev = true;
 
-        // глубина забоя у каждой метки времени (своя колонка слева)
+        // забой с точностью до 0.1
         const double dv = depthAt(t);
-        const QString dstr = QString::number(dv, 'f', dv >= 1000 ? 0 : (dv >= 100 ? 1 : 2));
         p->setPen(QPen(QColor("#12314E"), 1));
-        p->drawText(QRectF(2, y - 6, colSplit - 6, 12),
-                    Qt::AlignRight | Qt::AlignVCenter, dstr);
+        p->drawText(QRectF(pad, y - 6, m_depthTextW, 12), Qt::AlignRight | Qt::AlignVCenter,
+                    QString::number(dv, 'f', 1));
         p->setPen(QPen(QColor("#8FA1B0"), 1));
-        p->drawLine(QPointF(colSplit - 3, y), QPointF(colSplit, y));
+        p->drawLine(QPointF(colSplit - 2, y), QPointF(colSplit, y));
     }
-
-    // нижняя строка: текущие глубина и время
-    p->setPen(QPen(QColor("#B9C4CE"), 1));
-    p->drawLine(QPointF(2, padT + ph + 2), QPointF(r.width() - 2, padT + ph + 2));
-    QFont fb = f;
-    fb.setBold(true);
-    p->setFont(fb);
-    const double yb = r.height() - 8;
-    const double dvNow = m_store->latest(uint16_t(m_depth));
-    p->setPen(QColor("#12314E"));
-    p->drawText(QRectF(2, yb - 7, colSplit - 6, 14), Qt::AlignRight | Qt::AlignVCenter,
-                QString::number(dvNow, 'f', dvNow >= 1000 ? 1 : 2));
-    p->setPen(QColor("#28517A"));
-    p->drawText(QRectF(colSplit + 4, yb - 7, r.width() - colSplit - 6, 14),
-                Qt::AlignLeft | Qt::AlignVCenter,
-                QDateTime::fromSecsSinceEpoch(qint64(tEnd), QTimeZone::UTC).toString("hh:mm:ss"));
-    p->setFont(f);
 }
