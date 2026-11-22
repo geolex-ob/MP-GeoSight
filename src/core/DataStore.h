@@ -27,7 +27,7 @@ public:
     Q_INVOKABLE double secondsSinceUpdate() const;
     Q_INVOKABLE double lastEpoch() const;
     Q_INVOKABLE QVariantList rangeOf(int id);
-    Q_INVOKABLE int standsCount(int depthId, int bitId, int standLength) const;
+    Q_INVOKABLE int standsCount(int depthId, int bitId, int standLength, int mode) const;
     void setTrackedSensors(const QVariantList &ids);
 
 signals:

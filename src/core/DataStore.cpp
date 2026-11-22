@@ -109,13 +109,18 @@ QVariantList DataStore::rangeOf(int id)
     return out;
 }
 
-int DataStore::standsCount(int depthId, int bitId, int standLength) const
+int DataStore::standsCount(int depthId, int bitId, int standLength, int mode) const
 {
     QMutexLocker locker(&m_mutex);
     if (standLength <= 0) return 0;
     const double d = m_latest.value(uint16_t(depthId), 0.0);
     const double b = m_latest.value(uint16_t(bitId), 0.0);
-    const double delta = d - b;
-    if (delta < 0.5) return 0;
-    return int(delta / standLength);
+    double base = 0.0;
+    switch (mode) {
+    case 1:  base = d;          break;   // забой / длина свечи
+    case 2:  base = d - b;      break;   // (забой - долото) / длина свечи
+    default: base = b;          break;   // долото / длина свечи
+    }
+    if (base < 0.5) return 0;
+    return int(base / standLength);
 }
