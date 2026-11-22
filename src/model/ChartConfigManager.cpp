@@ -320,7 +320,7 @@ void ChartConfigManager::removeTrace(int col, int traceId)
 
 void ChartConfigManager::setViewOffset(int sec)
 {
-    sec = qBound(0, sec, 6 * 3600);
+    sec = qBound(0, sec, 96 * 3600);
     if (sec == m_viewOffset) return;
     m_viewOffset = sec;
     emit viewOffsetChanged();
