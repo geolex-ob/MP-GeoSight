@@ -16,6 +16,7 @@ class GeoChartItem : public QQuickPaintedItem
     Q_PROPERTY(double sharedMin READ sharedMin WRITE setSharedMin NOTIFY paramsChanged)
     Q_PROPERTY(double sharedMax READ sharedMax WRITE setSharedMax NOTIFY paramsChanged)
     Q_PROPERTY(QVariantList comments READ comments WRITE setComments NOTIFY paramsChanged)
+    Q_PROPERTY(int highlightComment READ highlightComment WRITE setHighlightComment NOTIFY paramsChanged)
 
 public:
     explicit GeoChartItem(QQuickItem *parent = nullptr);
@@ -37,6 +38,8 @@ public:
     void setSharedMax(double v);
     QVariantList comments() const { return m_comments; }
     void setComments(const QVariantList &v);
+    int highlightComment() const { return m_hlComment; }
+    void setHighlightComment(int id);
 
     Q_INVOKABLE void addMarkerAt(double x, double y, int preferredSensor = -1);
     Q_INVOKABLE bool removeMarkerAt(double x, double y);
@@ -60,6 +63,7 @@ private:
     double m_sharedMin = 0.0001;
     double m_sharedMax = 10;
     QVariantList m_comments;
+    int m_hlComment = -1;
     double xOf(double v, double lo, double hi, double padL, double pw) const;
 
     struct Marker { double t = 0; int sensor = 0; double value = 0; QColor color; };

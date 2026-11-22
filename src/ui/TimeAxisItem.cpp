@@ -93,7 +93,7 @@ void TimeAxisItem::paint(QPainter *p)
     const double padT = 4, padB = 18;
     const double ph = r.height() - padT - padB;
     const double colSplit = 40.0;          // граница колонок «глубина | время»
-    if (ph <= 10 || !m_store) return;
+    if (!std::isfinite(ph) || ph <= 10 || !m_store) return;
     const double tEnd = m_store->lastEpoch() - m_offset;
     if (tEnd <= 0) return;
     const double tStart = tEnd - m_window;
@@ -122,6 +122,7 @@ void TimeAxisItem::paint(QPainter *p)
     const double step = tickStep(m_window, ph);
     for (double t = std::ceil(tStart / step) * step; t <= tEnd + 1e-9; t += step) {
         const double y = Y(t);
+        if (!std::isfinite(y)) continue;
 
         // горизонтальная риска только в колонке времени (не пересекает надписи глубины)
         p->setPen(QPen(QColor("#C4CED6"), 0.6, Qt::DashLine));

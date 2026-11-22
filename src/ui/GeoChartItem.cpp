@@ -4,6 +4,7 @@
 #include <QPolygonF>
 #include <QQuickWindow>
 #include <QVector>
+#include <QPair>
 #include <QFont>
 #include <limits>
 #include <cmath>
@@ -116,6 +117,14 @@ void GeoChartItem::setSharedMax(double v)
     update();
 }
 
+void GeoChartItem::setHighlightComment(int id)
+{
+    if (m_hlComment == id) return;
+    m_hlComment = id;
+    emit paramsChanged();
+    update();
+}
+
 void GeoChartItem::setComments(const QVariantList &v)
 {
     m_comments = v;
@@ -146,7 +155,7 @@ void GeoChartItem::paint(QPainter *p)
     const double padL = 4, padR = 4, padT = 4, padB = 10;
     const double pw = r.width() - padL - padR;
     const double ph = r.height() - padT - padB;
-    if (pw <= 4 || ph <= 4) return;
+    if (!std::isfinite(pw) || !std::isfinite(ph) || pw <= 4 || ph <= 4) return;
 
     const double tEnd = m_store ? m_store->lastEpoch() - m_offset : 0;
     const double tStart = tEnd - m_window;
@@ -161,6 +170,7 @@ void GeoChartItem::paint(QPainter *p)
         const double l1 = std::log10(qMax(m_sharedMax, m_sharedMin * 10));
         for (int d = int(std::ceil(l0)); d <= int(std::floor(l1)); ++d) {
             const double x = padL + (d - l0) / (l1 - l0) * pw;
+            if (!std::isfinite(x)) continue;
             p->drawLine(QPointF(x, padT), QPointF(x, padT + ph));
         }
     } else {
@@ -173,6 +183,7 @@ void GeoChartItem::paint(QPainter *p)
         const double step = minuteStep(m_window, ph);
         for (double t = qCeil(tStart / step) * step; t <= tEnd; t += step) {
             const double y = Y(t);
+            if (!std::isfinite(y)) continue;
             p->drawLine(QPointF(padL, y), QPointF(padL + pw, y));
         }
     }
@@ -182,6 +193,7 @@ void GeoChartItem::paint(QPainter *p)
     const int buckets = qMax(1, int(ph));
     const double inf = std::numeric_limits<double>::infinity();
 
+    QVector<QPair<double, QColor>> curMarks;
     p->setClipRect(QRectF(padL, padT, pw, ph));
     for (const QVariant &tv : m_traces) {
         const QVariantMap m = tv.toMap();
@@ -204,6 +216,7 @@ void GeoChartItem::paint(QPainter *p)
             int b = int((s[i].t - tStart) / m_window * buckets);
             b = qBound(0, b, buckets - 1);
             const double v = s[i].v;
+            if (!std::isfinite(v)) continue;
             if (!bHas[b]) { bHas[b] = true; bMin[b] = v; bMax[b] = v; }
             else { bMin[b] = qMin(bMin[b], v); bMax[b] = qMax(bMax[b], v); }
         }
@@ -213,8 +226,11 @@ void GeoChartItem::paint(QPainter *p)
         for (int b = 0; b < buckets; ++b) {
             if (!bHas[b]) continue;
             const double y = padT + (b + 0.5) * ph / buckets;
-            const double x1 = qBound(padL, X(bMin[b]), padL + pw);
-            const double x2 = qBound(padL, X(bMax[b]), padL + pw);
+            const double xa = X(bMin[b]);
+            const double xb = X(bMax[b]);
+            if (!std::isfinite(xa) || !std::isfinite(xb)) continue;
+            const double x1 = qBound(padL, xa, padL + pw);
+            const double x2 = qBound(padL, xb, padL + pw);
             if (!started) { path.moveTo(x1, y); started = true; }
             else path.lineTo(x1, y);
             path.lineTo(x2, y);
@@ -226,17 +242,23 @@ void GeoChartItem::paint(QPainter *p)
         p->setBrush(Qt::NoBrush);
         p->drawPath(path);
 
-        const double cx = qBound(padL, X(m_store->latest(uint16_t(sensor))), padL + pw);
-        p->setPen(Qt::NoPen);
-        p->setBrush(color);
-        QPolygonF tri;
-        tri << QPointF(cx, padT + ph) << QPointF(cx - 4, padT + ph + 7)
-            << QPointF(cx + 4, padT + ph + 7);
-        p->drawPolygon(tri);
-        p->setBrush(Qt::NoBrush);
+        const double lx = X(m_store->latest(uint16_t(sensor)));
+        curMarks.append(qMakePair(qBound(padL, std::isfinite(lx) ? lx : padL, padL + pw), color));
         p->setPen(grid);
     }
     p->setClipping(false);
+
+    // треугольники текущего значения внизу колонки (цвет = цвет линии)
+    for (const auto &cm : curMarks) {
+        p->setPen(Qt::NoPen);
+        p->setBrush(cm.second);
+        QPolygonF tri;
+        tri << QPointF(cm.first, padT + ph)
+            << QPointF(cm.first - 5, padT + ph + 8)
+            << QPointF(cm.first + 5, padT + ph + 8);
+        p->drawPolygon(tri);
+        p->setBrush(Qt::NoBrush);
+    }
 
     for (const Marker &mk : m_markers) {
         double lo = 0, hi = 100;
@@ -254,6 +276,7 @@ void GeoChartItem::paint(QPainter *p)
         if (m_log) { lo = m_sharedMin; hi = m_sharedMax; if (!(lo > 0)) lo = 1e-4; if (!(hi > lo)) hi = lo * 10; }
         const double y = Y(mk.t);
         const double x = qBound(padL, xOf(mk.value, lo, hi, padL, pw), padL + pw);
+        if (!std::isfinite(x) || !std::isfinite(y)) continue;
         if (y < padT || y > padT + ph) continue;
 
         p->setPen(QPen(mk.color, 1));
@@ -283,19 +306,29 @@ void GeoChartItem::paint(QPainter *p)
     p->setFont(fc);
     for (const QVariant &cv : m_comments) {
         const QVariantMap cm = cv.toMap();
-        const double cx = padL + (cm.value("t").toDouble() - tStart2) / m_window * pw;
-        const double cy = padT + cm.value("yFrac").toDouble() * ph;
-        if (cx < padL - 2 || cx > padL + pw + 2) continue;
+        const double xFrac = qBound(0.0, cm.value("yFrac").toDouble(), 1.0);
+        const double cx = padL + xFrac * pw;                       // фиксировано по ширине колонки
+        const double cy = padT + (cm.value("t").toDouble() - tStart2) / m_window * ph;  // движется со шкалой времени
+        if (!std::isfinite(cx) || !std::isfinite(cy)) continue;
+        if (cy < padT - 2 || cy > padT + ph + 2) continue;
         const QString txt = cm.value("text").toString();
-        p->setPen(QPen(QColor("#E8A013"), 1));
-        p->setBrush(QColor("#FFF8E6"));
+        const bool hl = (cm.value("id").toInt() == m_hlComment);
+        p->setPen(QPen(hl ? QColor("#C22B2B") : QColor("#E8A013"), hl ? 2 : 1));
+        p->setBrush(hl ? QColor("#FFE9C9") : QColor("#FFF8E6"));
         p->drawEllipse(QPointF(cx, cy), 2.5, 2.5);
-        const double w = 6 + txt.length() * 5.4 + 6;
-        QRectF box(cx + 4, cy - 14, w, 15);
+        const QStringList lines = txt.split('\n');
+        int maxLen = 1;
+        for (const QString &ln : lines) maxLen = qMax(maxLen, ln.length());
+        const double w = 6 + maxLen * 5.4 + 6;
+        const double h = lines.size() * 12 + 6;
+        double bx = cx + 6;
+        if (bx + w > padL + pw) bx = cx - 6 - w;      // не выходим за правый край
+        bx = qBound(padL, bx, qMax(padL, padL + pw - w));
+        QRectF box(bx, cy - h / 2, w, h);
         p->drawRect(box);
         p->setPen(QColor("#33424F"));
         p->setBrush(Qt::NoBrush);
-        p->drawText(box.adjusted(3, 0, -3, 0), Qt::AlignVCenter | Qt::AlignLeft, txt);
+        p->drawText(box.adjusted(3, 2, -3, -2), Qt::AlignLeft | Qt::AlignTop, txt);
     }
 }
 
@@ -307,7 +340,7 @@ void GeoChartItem::addMarkerAt(double x, double y, int preferredSensor)
     const double padL = 4, padR = 4, padT = 4, padB = 10;
     const double pw = r.width() - padL - padR;
     const double ph = r.height() - padT - padB;
-    if (pw <= 4 || ph <= 4) return;
+    if (!std::isfinite(pw) || !std::isfinite(ph) || pw <= 4 || ph <= 4) return;
     const double tEnd = m_store->lastEpoch() - m_offset;
     const double tStart = tEnd - m_window;
     const double t = tStart + (y - padT) / ph * m_window;
@@ -397,11 +430,19 @@ int GeoChartItem::commentAt(double x, double y) const
     const double tStart = tEnd - m_window;
     for (const QVariant &cv : m_comments) {
         const QVariantMap m = cv.toMap();
-        const double cx = padL + (m.value("t").toDouble() - tStart) / m_window * pw;
-        const double cy = padT + m.value("yFrac").toDouble() * ph;
+        const double xFrac = qBound(0.0, m.value("yFrac").toDouble(), 1.0);
+        const double cx = padL + xFrac * pw;
+        const double cy = padT + (m.value("t").toDouble() - tStart) / m_window * ph;
         const QString txt = m.value("text").toString();
-        const double w = 6 + txt.length() * 5.4 + 6;
-        if (x >= cx - 4 && x <= cx + w + 4 && y >= cy - 14 && y <= cy + 6)
+        const QStringList lines = txt.split('\n');
+        int maxLen = 1;
+        for (const QString &ln : lines) maxLen = qMax(maxLen, ln.length());
+        const double w = 6 + maxLen * 5.4 + 6;
+        const double h = lines.size() * 12 + 6;
+        double bx = cx + 6;
+        if (bx + w > padL + pw) bx = cx - 6 - w;
+        bx = qBound(padL, bx, qMax(padL, padL + pw - w));
+        if (x >= bx - 4 && x <= bx + w + 4 && y >= cy - h / 2 - 4 && y <= cy + h / 2 + 4)
             return m.value("id").toInt();
         if (qAbs(x - cx) < 10 && qAbs(y - cy) < 10)
             return m.value("id").toInt();
@@ -413,12 +454,15 @@ QVariantList GeoChartItem::commentCoords(double x, double y) const
 {
     QVariantList out;
     const QRectF r = boundingRect();
-    const double padT = 4, padB = 10;
+    const double padL = 4, padR = 4, padT = 4, padB = 10;
+    const double pw = r.width() - padL - padR;
     const double ph = r.height() - padT - padB;
-    if (ph <= 4 || !m_store) { out.append(0.0); out.append(0.0); return out; }
+    if (pw <= 4 || ph <= 4 || !m_store) { out.append(0.0); out.append(0.0); return out; }
     const double tEnd = m_store->lastEpoch() - m_offset;
-    const double t = tEnd - m_window + (y - padT) / ph * m_window;
+    const double tStart = tEnd - m_window;
+    // время (вертикальная шкала) из Y-координаты клика; доля ширины колонки — из X
+    const double t = tStart + qBound(0.0, (y - padT) / ph, 1.0) * m_window;
     out.append(t);
-    out.append(qBound(0.0, (y - padT) / ph, 1.0));
+    out.append(qBound(0.0, (x - padL) / pw, 1.0));
     return out;
 }
