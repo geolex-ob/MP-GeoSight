@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import QtQml.Models 2.15
 import GeoSight 1.0
 
 ApplicationWindow {
@@ -30,7 +31,9 @@ ApplicationWindow {
     property int commentCol: -1
     property int dragCol: -1
     property int dragId: -1
+    property int dragMarkerId: -1
     property bool didDrag: false
+    property int pendingRemoveCol: -1
     property int headerBand: 34 + chartManager.maxTraceRows * 26 + ((root.colRev, root.computeAnyLog()) ? 16 : 0)
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.tick++ }
 
@@ -39,7 +42,6 @@ ApplicationWindow {
         return Math.min(96 * 3600, Math.max(0, dataStore.bufferedHours() * 3600 - chartManager.timeWindow))
     }
     function scroll(dir) {
-        // не уходим дальше начала накопленного буфера
         var maxOff = root.maxOffset()
         chartManager.viewOffset = Math.max(0, Math.min(maxOff,
             chartManager.viewOffset + dir * root.wheelStep()))
@@ -134,8 +136,8 @@ ApplicationWindow {
             }
         }
     }
+    function askRemoveColumn(i) { root.pendingRemoveCol = i; colCloseConfirm.open() }
 
-    // ---------- геометрия колонок: сумма ширин = ширине контейнера ----------
     function availWidth() {
         var n = Math.max(1, chartManager.rowCount())
         var a = chartsHost.width - root.gutterW - root.colGap * n - root.sbW
@@ -239,6 +241,7 @@ ApplicationWindow {
         palette.highlight: root.accent
         palette.highlightedText: "#12314E"
         Menu {
+			width: 300
             title: "Меню"
             palette.text: root.ink
             palette.window: "#FFFFFF"
@@ -253,7 +256,8 @@ ApplicationWindow {
             }
             MenuItem { text: "Сбросить настройки отображения…"; onTriggered: resetConfirm.open() }
             Menu {
-                title: "Профили (.cfg)"
+				width: 300
+				title: "Профили (.cfg)"
                 palette.text: root.ink
                 palette.window: "#FFFFFF"
                 palette.highlight: "#FDF3DC"
@@ -264,6 +268,7 @@ ApplicationWindow {
                 MenuSeparator { }
                 MenuItem { text: "Сохранить текущий в библиотеку…"; onTriggered: libSave.open() }
                 Menu {
+					width: 300
                     id: libMenu
                     title: "Библиотека профилей"
                     palette.text: root.ink
@@ -523,7 +528,7 @@ ApplicationWindow {
                             ToolButton { text: "💬"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
                                          onClicked: root.startComment(hdrRect.index) }
                             ToolButton { text: "×"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
-                                         onClicked: chartManager.removeColumn(hdrRect.index) }
+                                         onClicked: root.askRemoveColumn(hdrRect.index) }
                         }
 
                         Repeater {
@@ -578,6 +583,7 @@ ApplicationWindow {
                                     }
                                 }
                                 Menu {
+									width: 300
                                     id: rowMenu
                                     palette.text: root.ink
                                     palette.highlight: "#FDF3DC"
@@ -626,6 +632,7 @@ ApplicationWindow {
                 store: dataStore
                 windowSeconds: chartManager.timeWindow
                 depthSensorId: chartManager.depthSensorId
+                toolDepthSensorId: 115
                 offsetSeconds: chartManager.viewOffset
             }
 
@@ -737,6 +744,7 @@ ApplicationWindow {
                         sharedMin: (root.colRev, chartManager.columnMin(colRect.index))
                         sharedMax: (root.colRev, chartManager.columnMax(colRect.index))
                         comments: (root.colRev, chartManager.commentsOf(colRect.index))
+                        fontPx: Math.max(9, chartManager.headerFontPx - 3)
                     }
 
                     MouseArea {
@@ -748,25 +756,39 @@ ApplicationWindow {
                             if (m.button !== Qt.LeftButton) return
                             var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
                             var cid = geoChart.commentAt(pt.x, pt.y)
+                            var mid = geoChart.markerAt(pt.x, pt.y)
                             if (cid >= 0) {
                                 root.dragCol = colRect.index
                                 root.dragId = cid
                                 root.didDrag = false
                                 geoChart.highlightComment = cid
+                            } else if (mid >= 0) {
+                                root.dragCol = colRect.index
+                                root.dragMarkerId = mid
+                                root.didDrag = false
                             }
                         }
                         onPositionChanged: function(m) {
-                            if (root.dragId < 0) return
-                            var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
-                            var cc = geoChart.commentCoords(pt.x, pt.y)
-                            chartManager.moveComment(root.dragCol, root.dragId, cc[0], cc[1])
-                            root.didDrag = true
+                            if (root.dragId >= 0) {
+                                var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
+                                var cc = geoChart.commentCoords(pt.x, pt.y)
+                                chartManager.moveComment(root.dragCol, root.dragId, cc[0], cc[1])
+                                root.didDrag = true
+                            } else if (root.dragMarkerId >= 0) {
+                                var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
+                                var cc = geoChart.commentCoords(pt.x, pt.y)
+                                geoChart.moveMarker(root.dragMarkerId, cc[0])
+                                root.didDrag = true
+                            }
                         }
                         onReleased: function(m) {
                             if (root.dragId >= 0) {
                                 chartManager.saveNow()
                                 geoChart.highlightComment = -1
                                 root.dragId = -1
+                            } else if (root.dragMarkerId >= 0) {
+                                chartManager.saveNow()
+                                root.dragMarkerId = -1
                             }
                         }
                         onDoubleClicked: function(m) {
@@ -792,7 +814,7 @@ ApplicationWindow {
                         }
                     }
 
-                    // ---------- ручка изменения ширины (DragHandler) ----------
+                    // ---------- ручка изменения ширины ----------
                     Rectangle {
                         z: 2
                         anchors.right: parent.right
@@ -881,6 +903,25 @@ ApplicationWindow {
     SettingsDialog { id: settingsDialog }
     AboutDialog { id: aboutDialog }
     TraceDialog { id: traceDialog }
+
+    // ---------- Диалог подтверждения удаления колонки ----------
+    Dialog {
+        id: colCloseConfirm
+        title: "Удалить колонку"
+        modal: true; width: 430
+        anchors.centerIn: Overlay.overlay
+        header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
+            Text { anchors.centerIn: parent; text: colCloseConfirm.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
+        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+        contentItem: Label { wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
+                             text: "Удалить колонку " + (root.pendingRemoveCol + 1) + " вместе со всеми её параметрами?" }
+        footer: DialogButtonBox {
+            Button { text: "Удалить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: { chartManager.removeColumn(root.pendingRemoveCol); colCloseConfirm.close() } }
+            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+    }
 
     CfgDialog {
         id: cfgSave

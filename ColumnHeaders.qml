@@ -29,7 +29,7 @@ Rectangle {
                 text: "× колонка"
                 font.pixelSize: 9
                 Layout.preferredHeight: 20
-                onClicked: chartManager.removeColumn(hdr.colIndex)
+                onClicked: colCloseConfirm.open()
             }
         }
 
@@ -88,5 +88,19 @@ Rectangle {
             }
         }
         Item { Layout.fillHeight: true }
+    }
+
+    Dialog {
+        id: colCloseConfirm
+        title: "Удалить колонку"
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.No
+        anchors.centerIn: Overlay.overlay
+        contentItem: Text {
+            text: "Удалить колонку " + (hdr.colIndex + 1) + " вместе со всеми её параметрами?"
+            font.pixelSize: 13
+            color: "#33424F"
+        }
+        onAccepted: chartManager.removeColumn(hdr.colIndex)
     }
 }

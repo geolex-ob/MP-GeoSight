@@ -49,7 +49,8 @@ Rectangle {
 
     Menu {
         id: menu
-        MenuItem {
+        width: 300
+		MenuItem {
             text: "Настроить…"
             onTriggered: chartDialog.openEdit(pane.chartId, pane.sensorId, pane.chartTitle,
                                               pane.chartColor, pane.minV, pane.maxV)
