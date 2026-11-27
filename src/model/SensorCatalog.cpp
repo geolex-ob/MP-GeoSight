@@ -88,7 +88,7 @@ static QString decodeCsvText(const QByteArray &raw)
                                   (raw.size() - 2) / 2);
     if (raw.startsWith("\xFE\xFF")) {
         QByteArray sw = raw.mid(2);
-        for (int i = 0; i + 1 < sw.size(); i += 2) std::swap(sw[i], sw[i + 1]);
+        for (int i = 0; i + 1 < sw.size(); i += 2) { char tmp = sw[i]; sw[i] = sw[i + 1]; sw[i + 1] = tmp; };
         return QString::fromUtf16(reinterpret_cast<const char16_t *>(sw.constData()), sw.size() / 2);
     }
     // строгая проверка UTF-8
