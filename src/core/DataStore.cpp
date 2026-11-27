@@ -84,7 +84,7 @@ QString DataStore::serverTimeString() const
         ts = m_serverTime;
     }
     if (ts <= 0) return "--.--.---- --:--:--";
-    const QDateTime epoch(QDate(1899, 12, 30), QTime(0, 0), QTimeZone::UTC);
+    const QDateTime epoch(QDate(1899, 12, 30), QTime(0, 0), QTimeZone::utc());
     return epoch.addMSecs(qint64(ts * 86400000.0))
                .toString("dd.MM.yyyy HH:mm:ss");
 }
