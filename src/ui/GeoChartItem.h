@@ -5,9 +5,11 @@
 #include <QColor>
 #include <QVector>
 #include <QRectF>
+#include <QPointF>
+#include <QSizeF>
 #include <QtGlobal>
 
-#include "core/DataStore.h"   // Sample РѕРїСЂРµРґРµР»С‘РЅ РІ DataStore.h вЂ” Р·РґРµСЃСЊ РЅРµ РґСѓР±Р»РёСЂСѓРµРј
+#include "core/DataStore.h"
 
 struct Marker {
     int id = -1;
@@ -15,6 +17,7 @@ struct Marker {
     int sensor = 0;
     double value = 0;
     QColor color;
+    bool ruler = false;
 };
 
 class GeoChartItem : public QQuickPaintedItem
@@ -30,6 +33,8 @@ class GeoChartItem : public QQuickPaintedItem
     Q_PROPERTY(int highlightComment READ highlightComment WRITE setHighlightComment NOTIFY paramsChanged)
     Q_PROPERTY(QVariantList comments READ comments WRITE setComments NOTIFY paramsChanged)
     Q_PROPERTY(int fontPx READ fontPx WRITE setFontPx NOTIFY paramsChanged)
+    // ЛИНЕЙКИ: список моментов времени, без ограничения количества
+    Q_PROPERTY(QVariantList rulerTimes READ rulerTimes WRITE setRulerTimes NOTIFY paramsChanged)
 
 public:
     explicit GeoChartItem(QQuickItem *parent = nullptr);
@@ -65,13 +70,18 @@ public:
     int fontPx() const { return m_fontPx; }
     void setFontPx(int px);
 
-    // РјРµС‚РєРё
+    QVariantList rulerTimes() const;
+    void setRulerTimes(const QVariantList &v);
+
+    // индекс линейки под курсором или -1
+    Q_INVOKABLE int rulerIndexAt(double y) const;
+    Q_INVOKABLE void clearRulers();
+
     Q_INVOKABLE int  markerAt(double x, double y) const;
     Q_INVOKABLE void moveMarker(int id, double t);
     Q_INVOKABLE void addMarkerAt(double x, double y, int preferredSensor);
     Q_INVOKABLE bool removeMarkerAt(double x, double y);
 
-    // РєРѕРјРјРµРЅС‚Р°СЂРёРё
     Q_INVOKABLE int commentAt(double x, double y) const;
     Q_INVOKABLE QVariantList commentCoords(double x, double y) const;
 
@@ -82,24 +92,26 @@ signals:
 protected:
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
-
 private:
     void syncTextureSize();
+    void rebuildRuler();
     double xOf(double v, double lo, double hi, double padL, double pw) const;
     void traceRange(int sensor, double &lo, double &hi) const;
+    double sampleAt(int sensor, double t) const;
     QRectF commentBox(const QVariantMap &cm, double padL, double padT,
                       double pw, double ph, double tStart, double &cx, double &cy) const;
 
-    DataStore *m_store = nullptr;
-    QVariantList m_traces;
-    QVariantList m_comments;
-    QVector<Marker> m_markers;
-    int m_window = 900;
-    int m_offset = 0;
-    bool m_log = false;
-    double m_sharedMin = 0;
-    double m_sharedMax = 100;
-    int m_hlComment = -1;
-    int m_fontPx = 9;
-    int m_nextMarkerId = 1;
+                      DataStore *m_store = nullptr;
+                      QVariantList m_traces;
+                      QVariantList m_comments;
+                      QVector<Marker> m_markers;
+                      QVector<double> m_rulerTimes;
+                      int m_window = 900;
+                      int m_offset = 0;
+                      bool m_log = false;
+                      double m_sharedMin = 0;
+                      double m_sharedMax = 100;
+                      int m_hlComment = -1;
+                      int m_fontPx = 9;
+                      int m_nextMarkerId = 1;
 };
