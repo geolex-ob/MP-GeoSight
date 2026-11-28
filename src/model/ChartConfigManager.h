@@ -39,7 +39,8 @@ struct Column {
 class ChartConfigManager : public QAbstractListModel
 {
     Q_OBJECT
-    Q_PROPERTY(int timeWindow READ timeWindow WRITE setTimeWindow NOTIFY configChanged)
+        Q_PROPERTY(bool rulerMode MEMBER m_rulerMode NOTIFY rulerModeChanged)
+Q_PROPERTY(int timeWindow READ timeWindow WRITE setTimeWindow NOTIFY configChanged)
     Q_PROPERTY(int depthSensorId READ depthSensorId WRITE setDepthSensorId NOTIFY configChanged)
     Q_PROPERTY(int bitSensorId READ bitSensorId WRITE setBitSensorId NOTIFY configChanged)
     Q_PROPERTY(int maxTraceRows READ maxTraceRows NOTIFY configChanged)
@@ -116,7 +117,10 @@ public:
                                  const QString &color, double mn, double mx);
     Q_INVOKABLE void removeTrace(int col, int traceId);
 
+    bool m_rulerMode = false;
+
 signals:
+    void rulerModeChanged();
     void configChanged();
     void viewOffsetChanged();
     void selectedChanged();
