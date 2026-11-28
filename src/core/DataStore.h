@@ -22,7 +22,14 @@ public:
     bool   has(uint16_t id) const;
     QVector<Sample> snapshot(uint16_t id) const;
 
-    Q_INVOKABLE double value(int id) const { return latest(uint16_t(id)); }
+        // Значение датчика; 0, если данных нет дольше maxAgeSec.
+    Q_INVOKABLE double freshValue(int sensorId, double maxAgeSec = 240.0) const {
+        const QVector<Sample> s = snapshot(uint16_t(sensorId));
+        if (s.isEmpty()) return 0.0;
+        return (lastEpoch() - s.last().t > maxAgeSec) ? 0.0 : s.last().v;
+    }
+
+Q_INVOKABLE double value(int id) const { return latest(uint16_t(id)); }
     Q_INVOKABLE QString serverTimeString() const;
     Q_INVOKABLE double secondsSinceUpdate() const;
     Q_INVOKABLE double lastEpoch() const;
