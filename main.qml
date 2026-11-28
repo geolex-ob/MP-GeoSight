@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQml.Models 2.15
+import Qt.labs.settings 1.0
 import GeoSight 1.0
 
 ApplicationWindow {
@@ -34,6 +35,29 @@ ApplicationWindow {
     property int dragMarkerId: -1
     property bool didDrag: false
     property int pendingRemoveCol: -1
+    property string colSig: ""
+
+    // ---- ЛИНЕЙКА ----
+    property bool rulerMode: false
+    property var rulerTimes: []
+    property bool dragRuler: false
+    property int dragRulerIdx: -1
+    readonly property var activeRulerTimes: rulerMode ? rulerTimes : []
+
+    function rulerRemoveAt(idx) {
+        var a = root.rulerTimes.slice()
+        if (idx < 0 || idx >= a.length) return
+        a.splice(idx, 1)
+        root.rulerTimes = a
+    }
+    function rulerMoveIdx(idx, t) {
+        var a = root.rulerTimes.slice()
+        if (idx < 0 || idx >= a.length) return
+        a[idx] = t
+        root.rulerTimes = a
+    }
+    function rulerClearAll() { root.rulerTimes = [] }
+
     property int headerBand: 34 + chartManager.maxTraceRows * 26 + ((root.colRev, root.computeAnyLog()) ? 16 : 0)
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.tick++ }
 
@@ -44,23 +68,28 @@ ApplicationWindow {
     function scroll(dir) {
         var maxOff = root.maxOffset()
         chartManager.viewOffset = Math.max(0, Math.min(maxOff,
-            chartManager.viewOffset + dir * root.wheelStep()))
+                                                       chartManager.viewOffset + dir * root.wheelStep()))
     }
     function fmtVal(v, col) {
         return chartManager.columnLog(col) ? v.toFixed(4) : v.toFixed(2)
     }
+    function hdrValue(sid, col) {
+        if (chartManager.columnLog(col) && typeof dataStore.freshValue === "function")
+            return Number(dataStore.freshValue(sid, 240))
+            return Number(dataStore.value(sid))
+    }
     function computeAnyLog() {
         for (var c = 0; c < chartManager.rowCount(); ++c)
             if (chartManager.columnLog(c)) return true
-        return false
+                return false
     }
     function decadesOf(col) {
         var lo = chartManager.columnMin(col), hi = chartManager.columnMax(col)
         if (!(lo > 0) || !(hi > lo)) return []
-        var out = []
-        for (var d = Math.ceil(Math.log10(lo)); d <= Math.floor(Math.log10(hi)); ++d)
-            out.push(Math.pow(10, d))
-        return out
+            var out = []
+            for (var d = Math.ceil(Math.log10(lo)); d <= Math.floor(Math.log10(hi)); ++d)
+                out.push(Math.pow(10, d))
+                return out
     }
     function fmtDec(v) {
         return v >= 0.001 ? String(parseFloat(v.toPrecision(4))) : v.toExponential(0)
@@ -71,14 +100,14 @@ ApplicationWindow {
         for (var i = 0; i < ts.length; ++i) {
             var r = dataStore.rangeOf(ts[i].sensorId)
             if (r[0] > 0 && r[0] < mn) mn = r[0]
-            if (r[1] > mx) mx = r[1]
+                if (r[1] > mx) mx = r[1]
         }
         if (!isFinite(mn) || mn <= 0) mn = 0.0001
-        if (!isFinite(mx) || mx <= mn) mx = mn * 10000
-        mn = Math.pow(10, Math.floor(Math.log10(mn)))
-        mx = Math.pow(10, Math.ceil(Math.log10(mx)))
-        if (mx <= mn) mx = mn * 10
-        return [mn, mx]
+            if (!isFinite(mx) || mx <= mn) mx = mn * 10000
+                mn = Math.pow(10, Math.floor(Math.log10(mn)))
+                mx = Math.pow(10, Math.ceil(Math.log10(mx)))
+                if (mx <= mn) mx = mn * 10
+                    return [mn, mx]
     }
     function toggleColumnLog(col) {
         var on = !chartManager.columnLog(col)
@@ -87,8 +116,9 @@ ApplicationWindow {
             var r = decadeRange(col)
             chartManager.setColumnRange(col, r[0], r[1])
         }
-        root.toast(on ? "Колонка " + (col + 1) + ": лог-шкала, общий диапазон " + r[0] + "…" + r[1]
-                      : "Колонка " + (col + 1) + ": линейная шкала")
+        root.colRev++
+        root.toast(on ? "Колонка " + (col + 1) + ": лог-шкала"
+        : "Колонка " + (col + 1) + ": линейная шкала")
     }
     function applyCsvNames(notify) {
         var n = 0
@@ -104,13 +134,13 @@ ApplicationWindow {
             }
         }
         if (notify) root.toast("Названия обновлены из Sensors.csv: " + n)
-        return n
+            return n
     }
     function syncWin() {
         var idx = 4
         for (var i = 0; i < winModel.count; ++i)
             if (winModel.get(i).sec === chartManager.timeWindow) idx = i
-        winCombo.currentIndex = idx
+                winCombo.currentIndex = idx
     }
     function toast(msg) {
         toastLabel.text = msg
@@ -155,29 +185,30 @@ ApplicationWindow {
         var n = Math.max(1, chartManager.rowCount())
         var w = chartManager.columnWeight(i)
         if (!isFinite(w) || w <= 0) w = 1
-        var cw = availWidth() * w / sumWeights()
-        return (isFinite(cw) && cw >= 10) ? cw : availWidth() / n
+            var cw = availWidth() * w / sumWeights()
+            return (isFinite(cw) && cw >= 10) ? cw : availWidth() / n
     }
     function colX(i) {
         var x = root.gutterW + root.colGap * (i + 1)
         for (var k = 0; k < i; ++k) x += colWidth(k)
-        return x
+            return x
     }
     function resizeColumn(i, d) {
         var n = chartManager.rowCount()
         if (i < 0 || i >= n - 1) return
-        if (!isFinite(d)) return
-        var avail = availWidth()
-        if (avail <= 50) return
-        var dw = d / avail * sumWeights()
-        if (!isFinite(dw)) return
-        var wi = chartManager.columnWeight(i) + dw
-        var wj = chartManager.columnWeight(i + 1) - dw
-        var minW = 0.05
-        if (wi < minW) { wj -= (minW - wi); wi = minW }
-        if (wj < minW) { wi -= (minW - wj); wj = minW }
-        chartManager.setColumnWeight(i, wi)
-        chartManager.setColumnWeight(i + 1, wj)
+            if (!isFinite(d)) return
+                var avail = availWidth()
+                if (avail <= 50) return
+                    var dw = d / avail * sumWeights()
+                    if (!isFinite(dw)) return
+                        var wi = chartManager.columnWeight(i) + dw
+                        var wj = chartManager.columnWeight(i + 1) - dw
+                        var minW = 0.05
+                        if (wi < minW) { wj -= (minW - wi); wi = minW }
+                        if (wj < minW) { wi -= (minW - wj); wj = minW }
+                        chartManager.setColumnWeight(i, wi)
+                        chartManager.setColumnWeight(i + 1, wj)
+                        root.colRev++
     }
 
     component ToolButton: Button {
@@ -208,29 +239,18 @@ ApplicationWindow {
         color: "#FFFFFF"
         border.color: root.line
         radius: 6
-        Rectangle {
-            x: 0; y: 6
-            width: 3; height: parent.height - 12
-            radius: 2
-            color: vb.bar
-        }
+        Rectangle { x: 0; y: 6; width: 3; height: parent.height - 12; radius: 2; color: vb.bar }
         Column {
             anchors.centerIn: parent
             spacing: 0
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: vb.caption
-                font.pixelSize: 9
-                font.bold: true
-                color: "#6B7A88"
+                text: vb.caption; font.pixelSize: 9; font.bold: true; color: "#6B7A88"
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: vb.val
-                font.pixelSize: 17
-                font.bold: true
-                font.family: "Monospace"
-                color: root.ink
+                text: vb.val; font.pixelSize: 17; font.bold: true
+                font.family: "Monospace"; color: root.ink
             }
         }
     }
@@ -241,7 +261,7 @@ ApplicationWindow {
         palette.highlight: root.accent
         palette.highlightedText: "#12314E"
         Menu {
-			width: 300
+            width: 300
             title: "Меню"
             palette.text: root.ink
             palette.window: "#FFFFFF"
@@ -256,19 +276,18 @@ ApplicationWindow {
             }
             MenuItem { text: "Сбросить настройки отображения…"; onTriggered: resetConfirm.open() }
             Menu {
-				width: 300
-				title: "Профили (.cfg)"
+                width: 300
+                title: "Профили (.cfg)"
                 palette.text: root.ink
                 palette.window: "#FFFFFF"
                 palette.highlight: "#FDF3DC"
-                palette.highlightedText: root.ink
                 background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 6 }
                 MenuItem { text: "Сохранить как .cfg…"; onTriggered: cfgSave.open() }
                 MenuItem { text: "Загрузить .cfg…"; onTriggered: cfgOpen.open() }
                 MenuSeparator { }
                 MenuItem { text: "Сохранить текущий в библиотеку…"; onTriggered: libSave.open() }
                 Menu {
-					width: 300
+                    width: 300
                     id: libMenu
                     title: "Библиотека профилей"
                     palette.text: root.ink
@@ -295,10 +314,28 @@ ApplicationWindow {
             }
             MenuSeparator { }
             MenuItem {
+                id: rulerItem
+                checkable: true
+                checked: root.rulerMode
+                text: (checked ? "✓  " : "     ") + "Линейка вместо метки (все параметры)"
+                onTriggered: {
+                    root.rulerMode = checked
+                    if (!checked) root.rulerClearAll()
+                        root.toast(checked ? "Линейка: двойной клик ставит метки на всех параметрах всех колонок"
+                        : "Обычные метки")
+                }
+            }
+            MenuItem {
+                text: "Убрать все линейки"
+                enabled: root.rulerTimes.length > 0
+                onTriggered: root.rulerClearAll()
+            }
+            MenuSeparator { }
+            MenuItem {
                 text: "Обновить названия из Sensors.csv"
                 onTriggered: {
                     if (sensorCatalog.reloadCsv()) root.applyCsvNames(true)
-                    else root.toast("Sensors.csv не найден рядом с программой")
+                        else root.toast("Sensors.csv не найден рядом с программой")
                 }
             }
             MenuItem { text: "Переподключиться"; onTriggered: { networkManager.reconnect(); root.toast("Переподключение к " + networkManager.serverIP + " …") } }
@@ -334,8 +371,8 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     spacing: 6
                     Rectangle { Layout.preferredWidth: 9; Layout.preferredHeight: 9; radius: 5
-                                color: networkManager.connected ? root.ok : root.bad }
-                    Label { text: networkManager.connected ? "Подключено" : "Нет связи"
+                        color: networkManager.connected ? root.ok : root.bad }
+                        Label { text: networkManager.connected ? "Подключено" : "Нет связи"
                             color: networkManager.connected ? root.ok : root.bad
                             font.pixelSize: 12; font.bold: true }
                 }
@@ -347,6 +384,20 @@ ApplicationWindow {
                 font.bold: true; font.pixelSize: 12
             }
             ToolButton { text: "К реальному времени"; visible: chartManager.viewOffset > 0; onClicked: chartManager.viewOffset = 0 }
+            Rectangle {
+                visible: root.rulerMode
+                Layout.preferredHeight: 26
+                Layout.preferredWidth: 118
+                radius: 6
+                color: root.rulerTimes.length > 0 ? "#FDECEA" : "#FDF3DC"
+                border.color: root.rulerTimes.length > 0 ? "#E03A2F" : root.accent
+                Label {
+                    anchors.centerIn: parent
+                    font.pixelSize: 11; font.bold: true
+                    color: root.rulerTimes.length > 0 ? "#E03A2F" : "#8A6410"
+                    text: root.rulerTimes.length > 0 ? ("ЛИНЕЙКИ: " + root.rulerTimes.length) : "ЛИНЕЙКА"
+                }
+            }
             Item { Layout.fillWidth: true }
             Label { text: "Окно:"; color: root.ink; font.pixelSize: 12 }
             ComboBox {
@@ -409,7 +460,7 @@ ApplicationWindow {
                 caption: "СВЕЧИ, шт"
                 bar: "#C22B2B"
                 val: (root.tick, dataStore.secondsSinceUpdate() < 0 ? "—"
-                      : Number(dataStore.value(chartManager.standsSensorId)).toFixed(0))
+                : Number(dataStore.value(chartManager.standsSensorId)).toFixed(0))
             }
             ValueBox {
                 caption: "ДОЛОТО, м"
@@ -441,7 +492,7 @@ ApplicationWindow {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: (root.tick, info.sensorId > 0 && dataStore.secondsSinceUpdate() >= 0
-                                  ? Number(dataStore.value(info.sensorId)).toFixed(info.decimals) + " " + info.unit : "—")
+                            ? Number(dataStore.value(info.sensorId)).toFixed(info.decimals) + " " + info.unit : "—")
                             font.pixelSize: 15; font.bold: true; font.family: "Monospace"; color: root.ink
                         }
                     }
@@ -451,7 +502,7 @@ ApplicationWindow {
                         onDoubleClicked: infoDialog.openFor(infoHdr.index)
                     }
                     Text { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 3
-                           text: "⚙"; font.pixelSize: 8; color: "#B9C4CE" }
+                        text: "⚙"; font.pixelSize: 8; color: "#B9C4CE" }
                 }
             }
             Rectangle {
@@ -459,7 +510,7 @@ ApplicationWindow {
                 color: "#FFFFFF"; border.color: root.line; radius: 6
                 Text { id: clock; anchors.centerIn: parent; font.pixelSize: 32; font.bold: true; color: root.ink }
                 Timer { interval: 1000; running: true; repeat: true; triggeredOnStart: true
-                        onTriggered: clock.text = Qt.formatTime(new Date(), "hh:mm") }
+                    onTriggered: clock.text = Qt.formatTime(new Date(), "hh:mm") }
             }
         }
     }
@@ -469,7 +520,6 @@ ApplicationWindow {
         anchors.margins: 4
         spacing: 2
 
-        // ---------- Шапки колонок ----------
         Item {
             id: headersHost
             Layout.fillWidth: true
@@ -524,11 +574,11 @@ ApplicationWindow {
                                 }
                             }
                             ToolButton { text: "+ параметр"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
-                                         onClicked: traceDialog.openAdd(hdrRect.index) }
-                            ToolButton { text: "💬"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
-                                         onClicked: root.startComment(hdrRect.index) }
-                            ToolButton { text: "×"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
-                                         onClicked: root.askRemoveColumn(hdrRect.index) }
+                                onClicked: traceDialog.openAdd(hdrRect.index) }
+                                ToolButton { text: "💬"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
+                                    onClicked: root.startComment(hdrRect.index) }
+                                    ToolButton { text: "×"; font.pixelSize: 9; height: 20; anchors.verticalCenter: parent.verticalCenter
+                                        onClicked: root.askRemoveColumn(hdrRect.index) }
                         }
 
                         Repeater {
@@ -551,7 +601,7 @@ ApplicationWindow {
                                         font.bold: true
                                         color: modelData.color
                                         text: (root.tick, modelData.title + " = " +
-                                               root.fmtVal(Number(dataStore.value(modelData.sensorId)), hdrRect.index))
+                                        root.fmtVal(root.hdrValue(modelData.sensorId, hdrRect.index), hdrRect.index))
                                         elide: Text.ElideRight
                                     }
                                     Row {
@@ -579,11 +629,11 @@ ApplicationWindow {
                                     onDoubleClicked: traceDialog.openEdit(hdrRect.index, modelData)
                                     onClicked: function(m) {
                                         if (m.button === Qt.RightButton) rowMenu.popup()
-                                        else chartManager.selectedSensor = modelData.sensorId
+                                            else chartManager.selectedSensor = modelData.sensorId
                                     }
                                 }
                                 Menu {
-									width: 300
+                                    width: 300
                                     id: rowMenu
                                     palette.text: root.ink
                                     palette.highlight: "#FDF3DC"
@@ -603,8 +653,8 @@ ApplicationWindow {
                                 delegate: Text {
                                     required property var modelData
                                     x: parent ? (Math.log10(modelData) - Math.log10(chartManager.columnMin(hdrRect.index))) /
-                                       (Math.log10(chartManager.columnMax(hdrRect.index)) - Math.log10(chartManager.columnMin(hdrRect.index))) *
-                                       (parent.width - 34) : 0
+                                    (Math.log10(chartManager.columnMax(hdrRect.index)) - Math.log10(chartManager.columnMin(hdrRect.index))) *
+                                    (parent.width - 34) : 0
                                     font.pixelSize: 7
                                     color: "#8894A0"
                                     text: root.fmtDec(modelData)
@@ -616,7 +666,6 @@ ApplicationWindow {
             }
         }
 
-        // ---------- Графики ----------
         Item {
             id: chartsHost
             Layout.fillWidth: true
@@ -663,8 +712,8 @@ ApplicationWindow {
                         onClicked: function(m) {
                             var range = archiveScroll.trackH - archiveScroll.thumbH
                             if (range <= 0) return
-                            var f = (m.y - archiveScroll.thumbH / 2) / range
-                            chartManager.viewOffset = Math.max(0, Math.min(archiveScroll.maxOff, (1 - f) * archiveScroll.maxOff))
+                                var f = (m.y - archiveScroll.thumbH / 2) / range
+                                chartManager.viewOffset = Math.max(0, Math.min(archiveScroll.maxOff, (1 - f) * archiveScroll.maxOff))
                         }
                     }
                 }
@@ -691,21 +740,21 @@ ApplicationWindow {
                     border.color: root.ink
                     border.width: 1
                     MouseArea { id: sbHover; anchors.fill: parent; hoverEnabled: true
-                                acceptedButtons: Qt.NoButton; cursorShape: Qt.SizeVerCursor }
-                    DragHandler {
-                        id: sbDrag
-                        target: null
-                        property real startOffset: 0
-                        onActiveChanged: { if (active) startOffset = chartManager.viewOffset }
-                        onCentroidChanged: {
-                            if (!active) return
-                            var range = archiveScroll.trackH - archiveScroll.thumbH
-                            if (range <= 0) return
-                            var dy = centroid.position.y - centroid.pressPosition.y
-                            var off = startOffset - dy / range * archiveScroll.maxOff
-                            chartManager.viewOffset = Math.max(0, Math.min(archiveScroll.maxOff, off))
+                        acceptedButtons: Qt.NoButton; cursorShape: Qt.SizeVerCursor }
+                        DragHandler {
+                            id: sbDrag
+                            target: null
+                            property real startOffset: 0
+                            onActiveChanged: { if (active) startOffset = chartManager.viewOffset }
+                            onCentroidChanged: {
+                                if (!active) return
+                                    var range = archiveScroll.trackH - archiveScroll.thumbH
+                                    if (range <= 0) return
+                                        var dy = centroid.position.y - centroid.pressPosition.y
+                                        var off = startOffset - dy / range * archiveScroll.maxOff
+                                        chartManager.viewOffset = Math.max(0, Math.min(archiveScroll.maxOff, off))
+                            }
                         }
-                    }
                 }
                 Rectangle {
                     visible: chartManager.viewOffset > 0
@@ -715,11 +764,12 @@ ApplicationWindow {
                     width: 64; height: 18; radius: 4
                     color: root.ink
                     Text { anchors.centerIn: parent; color: "#FFFFFF"; font.pixelSize: 10; font.family: "Monospace"
-                           text: "−" + (chartManager.viewOffset / 60).toFixed(0) + "м" }
+                        text: "−" + (chartManager.viewOffset / 60).toFixed(0) + "м" }
                 }
             }
 
             Repeater {
+                id: chartsRep
                 model: chartManager
                 delegate: Rectangle {
                     id: colRect
@@ -745,63 +795,95 @@ ApplicationWindow {
                         sharedMax: (root.colRev, chartManager.columnMax(colRect.index))
                         comments: (root.colRev, chartManager.commentsOf(colRect.index))
                         fontPx: Math.max(9, chartManager.headerFontPx - 3)
+                        rulerTimes: root.activeRulerTimes
                     }
 
                     MouseArea {
                         id: plotMA
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        hoverEnabled: true
+                        cursorShape: root.rulerMode && geoChart.rulerIndexAt(plotMA.mouseY) >= 0 ? Qt.SizeVerCursor : Qt.ArrowCursor
                         onWheel: function(w) { root.scroll(w.angleDelta.y > 0 ? 1 : -1) }
+
                         onPressed: function(m) {
                             if (m.button !== Qt.LeftButton) return
-                            var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
-                            var cid = geoChart.commentAt(pt.x, pt.y)
-                            var mid = geoChart.markerAt(pt.x, pt.y)
-                            if (cid >= 0) {
-                                root.dragCol = colRect.index
-                                root.dragId = cid
-                                root.didDrag = false
-                                geoChart.highlightComment = cid
-                            } else if (mid >= 0) {
-                                root.dragCol = colRect.index
-                                root.dragMarkerId = mid
-                                root.didDrag = false
-                            }
+                                var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
+                                if (root.rulerMode) {
+                                        var ri = geoChart.rulerIndexAt(pt.y)
+                                        if (ri >= 0) {
+                                            root.dragRuler = true
+                                            root.dragRulerIdx = ri
+                                            root.didDrag = false
+                                            return
+                                        }
+                                }
+                                var cid = geoChart.commentAt(pt.x, pt.y)
+                                var mid = geoChart.markerAt(pt.x, pt.y)
+                                if (cid >= 0) {
+                                    root.dragCol = colRect.index
+                                    root.dragId = cid
+                                    root.didDrag = false
+                                    geoChart.highlightComment = cid
+                                } else if (mid >= 0) {
+                                    root.dragCol = colRect.index
+                                    root.dragMarkerId = mid
+                                    root.didDrag = false
+                                }
                         }
+
                         onPositionChanged: function(m) {
+                            if (root.dragRuler) {
+                                var pt0 = geoChart.mapFromItem(plotMA, m.x, m.y)
+                                root.rulerMoveIdx(root.dragRulerIdx, geoChart.commentCoords(pt0.x, pt0.y)[0])
+                                root.didDrag = true
+                                return
+                            }
                             if (root.dragId >= 0) {
                                 var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
                                 var cc = geoChart.commentCoords(pt.x, pt.y)
                                 chartManager.moveComment(root.dragCol, root.dragId, cc[0], cc[1])
                                 root.didDrag = true
                             } else if (root.dragMarkerId >= 0) {
-                                var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
-                                var cc = geoChart.commentCoords(pt.x, pt.y)
-                                geoChart.moveMarker(root.dragMarkerId, cc[0])
+                                var pt2 = geoChart.mapFromItem(plotMA, m.x, m.y)
+                                var cc2 = geoChart.commentCoords(pt2.x, pt2.y)
+                                geoChart.moveMarker(root.dragMarkerId, cc2[0])
                                 root.didDrag = true
                             }
                         }
+
                         onReleased: function(m) {
+                            if (root.dragRuler) { root.dragRuler = false; root.dragRulerIdx = -1; return }
                             if (root.dragId >= 0) {
                                 chartManager.saveNow()
                                 geoChart.highlightComment = -1
                                 root.dragId = -1
                             } else if (root.dragMarkerId >= 0) {
-                                chartManager.saveNow()
                                 root.dragMarkerId = -1
                             }
                         }
+
                         onDoubleClicked: function(m) {
                             if (m.button !== Qt.LeftButton) return
-                            var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
-                            var cid = geoChart.commentAt(pt.x, pt.y)
-                            if (cid >= 0) root.openCommentEdit(colRect.index, cid)
-                            else geoChart.addMarkerAt(pt.x, pt.y, chartManager.selectedSensor)
+                                var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
+                                if (root.rulerMode) {
+                                    if (geoChart.rulerIndexAt(pt.y) < 0)
+                                        root.rulerTimes = root.rulerTimes.concat([geoChart.commentCoords(pt.x, pt.y)[0]])
+                                    return
+                                }
+                                var cid = geoChart.commentAt(pt.x, pt.y)
+                                if (cid >= 0) root.openCommentEdit(colRect.index, cid)
+                                    else geoChart.addMarkerAt(pt.x, pt.y, chartManager.selectedSensor)
                         }
+
                         onClicked: function(m) {
                             if (root.didDrag) { root.didDrag = false; return }
                             var pt = geoChart.mapFromItem(plotMA, m.x, m.y)
                             if (m.button === Qt.RightButton) {
+                                if (root.rulerMode) {
+                                    var ridx = geoChart.rulerIndexAt(pt.y)
+                                    if (ridx >= 0) { root.rulerRemoveAt(ridx); return }
+                                }
                                 if (!geoChart.removeMarkerAt(pt.x, pt.y)) {
                                     var cid = geoChart.commentAt(pt.x, pt.y)
                                     if (cid >= 0) { chartManager.removeComment(colRect.index, cid); root.toast("Комментарий удалён") }
@@ -814,7 +896,6 @@ ApplicationWindow {
                         }
                     }
 
-                    // ---------- ручка изменения ширины ----------
                     Rectangle {
                         z: 2
                         anchors.right: parent.right
@@ -822,7 +903,7 @@ ApplicationWindow {
                         anchors.bottom: parent.bottom
                         width: 8
                         color: resizeDrag.active ? root.accent
-                             : (resizeHover.containsMouse ? "#66E8A013" : "transparent")
+                        : (resizeHover.containsMouse ? "#66E8A013" : "transparent")
                         MouseArea {
                             id: resizeHover
                             anchors.fill: parent
@@ -835,17 +916,14 @@ ApplicationWindow {
                             target: null
                             property real lastX: 0
                             onActiveChanged: {
-                                if (active) {
-                                    lastX = centroid.position.x
-                                } else {
-                                    chartManager.saveNow()
-                                }
+                                if (active) lastX = centroid.position.x
+                                    else chartManager.saveNow()
                             }
                             onCentroidChanged: {
                                 if (!active) return
-                                var d = centroid.position.x - lastX
-                                lastX = centroid.position.x
-                                root.resizeColumn(colRect.index, d)
+                                    var d = centroid.position.x - lastX
+                                    lastX = centroid.position.x
+                                    root.resizeColumn(colRect.index, d)
                             }
                         }
                     }
@@ -863,48 +941,112 @@ ApplicationWindow {
             anchors.margins: 6
             spacing: 10
             Label { text: networkManager.connected ? "● Подключено" : "○ Отключено"
-                    color: networkManager.connected ? root.ok : root.bad; font.pixelSize: 12 }
-            Label { text: "Колесо — архив. Двойной клик — метка. Тяните правый край колонки — ширина."; color: "#8894A0"; font.pixelSize: 11 }
-            Label {
-                id: toastLabel
-                opacity: 0
-                color: root.inkSoft
-                font.pixelSize: 12
-                font.bold: true
-                Behavior on opacity { NumberAnimation { duration: 300 } }
-                Timer { id: toastTimer; interval: 2600; onTriggered: toastLabel.opacity = 0 }
-            }
-            Item { Layout.fillWidth: true }
-            Label {
-                id: srvLabel
-                color: "#55636F"
-                font.pixelSize: 12
-                Timer {
-                    interval: 1000; running: true; repeat: true; triggeredOnStart: true
-                    onTriggered: {
-                        var age = dataStore.secondsSinceUpdate()
-                        srvLabel.text = age < 0 ? "Сервер: нет данных"
+                color: networkManager.connected ? root.ok : root.bad; font.pixelSize: 12 }
+                Label {
+                    color: "#8894A0"; font.pixelSize: 11
+                    text: root.rulerMode
+                    ? "Линейка: двойной клик — метки на всех параметрах. Тяните линию ЛКМ. ПКМ по линии — убрать."
+                    : "Колесо — архив. Двойной клик — метка (тянуть ЛКМ). Тяните правый край колонки — ширина."
+                }
+                Label {
+                    id: toastLabel
+                    opacity: 0
+                    color: root.inkSoft
+                    font.pixelSize: 12
+                    font.bold: true
+                    Behavior on opacity { NumberAnimation { duration: 300 } }
+                    Timer { id: toastTimer; interval: 2600; onTriggered: toastLabel.opacity = 0 }
+                }
+                Item { Layout.fillWidth: true }
+                Label {
+                    id: srvLabel
+                    color: "#55636F"
+                    font.pixelSize: 12
+                    Timer {
+                        interval: 1000; running: true; repeat: true; triggeredOnStart: true
+                        onTriggered: {
+                            var age = dataStore.secondsSinceUpdate()
+                            srvLabel.text = age < 0 ? "Сервер: нет данных"
                             : "Время сервера: " + dataStore.serverTimeString() + "  (срез " + Math.round(age) + " с назад)  ·  буфер " + dataStore.bufferedHours().toFixed(1) + " ч"
+                        }
                     }
                 }
-            }
         }
     }
 
+    Settings {
+        id: uiSettings
+        category: "ui"
+        property bool rulerMode: false
+    }
+
     Component.onCompleted: {
+        root.rulerMode = uiSettings.rulerMode
         if (sensorCatalog.hasCsv()) root.applyCsvNames(false)
     }
+    onRulerModeChanged: uiSettings.rulerMode = rulerMode
 
     Connections {
         target: chartManager
-        function onConfigChanged() { root.syncWin(); root.colRev++; root.infosRev++ }
+        function onConfigChanged() {
+            root.syncWin()
+            root.infosRev++
+            var sig = chartManager.rowCount() + "|"
+            for (var i = 0; i < chartManager.rowCount(); ++i)
+                sig += chartManager.columnLog(i) + "," + chartManager.columnMin(i) + "," +
+                chartManager.columnMax(i) + "," + chartManager.columnWeight(i) + ";"
+                if (sig !== root.colSig) { root.colSig = sig; root.colRev++ }
+        }
     }
 
     SettingsDialog { id: settingsDialog }
     AboutDialog { id: aboutDialog }
     TraceDialog { id: traceDialog }
 
-    // ---------- Диалог подтверждения удаления колонки ----------
+    Dialog {
+        id: colDialog
+        property int col: 0
+        title: "Колонка " + (col + 1)
+        modal: true; width: 420
+        anchors.centerIn: Overlay.overlay
+        function openFor(i) {
+            col = i
+            cdLog.checked = chartManager.columnLog(i)
+            cdMin.text = String(chartManager.columnMin(i))
+            cdMax.text = String(chartManager.columnMax(i))
+            open()
+        }
+        header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
+            Text { anchors.centerIn: parent; text: colDialog.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
+            background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+            contentItem: ColumnLayout {
+                spacing: 10
+                CheckBox { id: cdLog; text: "Логарифмическая шкала" }
+                RowLayout {
+                    spacing: 8
+                    Label { text: "Мин:"; color: root.ink; font.pixelSize: 12 }
+                    TextField { id: cdMin; Layout.preferredWidth: 110; font.pixelSize: 13 }
+                    Label { text: "Макс:"; color: root.ink; font.pixelSize: 12 }
+                    TextField { id: cdMax; Layout.preferredWidth: 110; font.pixelSize: 13 }
+                }
+                Label { text: "Для лог-шкалы мин должен быть больше нуля."; color: "#8894A0"; font.pixelSize: 11 }
+            }
+            footer: DialogButtonBox {
+                Button { text: "Применить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                    onClicked: {
+                        chartManager.setColumnLog(colDialog.col, cdLog.checked)
+                        var lo = Number(cdMin.text), hi = Number(cdMax.text)
+                        if (isFinite(lo) && isFinite(hi) && hi > lo && (!cdLog.checked || lo > 0))
+                            chartManager.setColumnRange(colDialog.col, lo, hi)
+                            chartManager.saveNow()
+                            root.colRev++
+                            colDialog.close()
+                    } }
+                    Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            }
+    }
+
     Dialog {
         id: colCloseConfirm
         title: "Удалить колонку"
@@ -913,14 +1055,14 @@ ApplicationWindow {
         header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
             Text { anchors.centerIn: parent; text: colCloseConfirm.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
-        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
-        contentItem: Label { wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
-                             text: "Удалить колонку " + (root.pendingRemoveCol + 1) + " вместе со всеми её параметрами?" }
-        footer: DialogButtonBox {
-            Button { text: "Удалить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: { chartManager.removeColumn(root.pendingRemoveCol); colCloseConfirm.close() } }
-            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+            background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+            contentItem: Label { wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
+                text: "Удалить колонку " + (root.pendingRemoveCol + 1) + " вместе со всеми её параметрами?" }
+                footer: DialogButtonBox {
+                    Button { text: "Удалить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                        onClicked: { chartManager.removeColumn(root.pendingRemoveCol); root.colRev++; colCloseConfirm.close() } }
+                        Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+                }
     }
 
     CfgDialog {
@@ -941,6 +1083,7 @@ ApplicationWindow {
         onChosen: function(p) {
             if (chartManager.importFromFile(p)) {
                 root.profilesRev++
+                root.colRev++
                 root.toast("Профиль применён: " + p)
             } else root.toast("Ошибка: " + chartManager.lastError())
         }
@@ -955,24 +1098,24 @@ ApplicationWindow {
         header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
             Text { anchors.centerIn: parent; text: libSave.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
-        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
-        contentItem: ColumnLayout {
-            spacing: 10
-            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
+            background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+            contentItem: ColumnLayout {
+                spacing: 10
+                Label { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
                     text: "Имя профиля (файл .cfg в папке profiles рядом с программой):" }
-            TextField { id: libName; Layout.fillWidth: true; font.pixelSize: 14; font.family: "Monospace"; color: root.ink
+                    TextField { id: libName; Layout.fillWidth: true; font.pixelSize: 14; font.family: "Monospace"; color: root.ink
                         background: Rectangle { radius: 6; color: libName.activeFocus ? "#FDF8EC" : "#FFFFFF"; border.color: libName.activeFocus ? root.accent : root.line } }
-            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#6B7A88"; font.pixelSize: 11
-                    text: "Файлы .cfg можно копировать на другие ПК и применять через «Загрузить .cfg…» или из библиотеки." }
-        }
-        footer: DialogButtonBox {
-            Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: {
-                    if (chartManager.saveToLibrary(libName.text)) { root.profilesRev++; root.toast("Профиль сохранён в библиотеку"); libSave.close() }
-                    else root.toast("Ошибка: " + chartManager.lastError())
-                } }
-            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+                        Label { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#6B7A88"; font.pixelSize: 11
+                            text: "Файлы .cfg можно копировать на другие ПК и применять через «Загрузить .cfg…» или из библиотеки." }
+            }
+            footer: DialogButtonBox {
+                Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                    onClicked: {
+                        if (chartManager.saveToLibrary(libName.text)) { root.profilesRev++; root.toast("Профиль сохранён в библиотеку"); libSave.close() }
+                        else root.toast("Ошибка: " + chartManager.lastError())
+                    } }
+                    Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            }
     }
 
     Dialog {
@@ -987,25 +1130,25 @@ ApplicationWindow {
         header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
             Text { anchors.centerIn: parent; text: commentDialog.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
-        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
-        contentItem: TextArea {
-            id: commentText
-            wrapMode: TextArea.Wrap
-            font.pixelSize: 13
-            color: root.ink
-            background: Rectangle { color: "#FBFCFD"; border.color: root.line; radius: 6 }
-        }
-        footer: DialogButtonBox {
-            Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: {
-                    var txt = commentText.text.trim()
-                    if (txt === "") { commentDialog.close(); return }
-                    if (commentDialog.editId >= 0) chartManager.updateComment(commentDialog.col, commentDialog.editId, txt)
-                    else chartManager.addComment(commentDialog.col, commentDialog.t, commentDialog.yFrac, txt)
-                    commentDialog.close()
-                } }
-            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+            background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+            contentItem: TextArea {
+                id: commentText
+                wrapMode: TextArea.Wrap
+                font.pixelSize: 13
+                color: root.ink
+                background: Rectangle { color: "#FBFCFD"; border.color: root.line; radius: 6 }
+            }
+            footer: DialogButtonBox {
+                Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                    onClicked: {
+                        var txt = commentText.text.trim()
+                        if (txt === "") { commentDialog.close(); return }
+                        if (commentDialog.editId >= 0) chartManager.updateComment(commentDialog.col, commentDialog.editId, txt)
+                            else chartManager.addComment(commentDialog.col, commentDialog.t, commentDialog.yFrac, txt)
+                                commentDialog.close()
+                    } }
+                    Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            }
     }
 
     Dialog {
@@ -1023,27 +1166,27 @@ ApplicationWindow {
         header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
             Text { anchors.centerIn: parent; text: infoDialog.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
-        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
-        contentItem: ColumnLayout {
-            spacing: 10
-            Label { text: "Заголовок:"; color: root.ink; font.pixelSize: 12 }
-            TextField { id: iTitle; Layout.fillWidth: true; font.pixelSize: 13 }
-            RowLayout {
+            background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+            contentItem: ColumnLayout {
                 spacing: 10
-                Label { text: "Датчик:"; color: root.ink; font.pixelSize: 12 }
-                SpinBox { id: iSensor; from: 0; to: 65535; Layout.preferredWidth: 110 }
-                Label { text: "Единицы:"; color: root.ink; font.pixelSize: 12 }
-                TextField { id: iUnit; Layout.preferredWidth: 70; font.pixelSize: 13 }
-                Label { text: "Знаков:"; color: root.ink; font.pixelSize: 12 }
-                SpinBox { id: iDec; from: 0; to: 6; Layout.preferredWidth: 90 }
+                Label { text: "Заголовок:"; color: root.ink; font.pixelSize: 12 }
+                TextField { id: iTitle; Layout.fillWidth: true; font.pixelSize: 13 }
+                RowLayout {
+                    spacing: 10
+                    Label { text: "Датчик:"; color: root.ink; font.pixelSize: 12 }
+                    SpinBox { id: iSensor; from: 0; to: 65535; Layout.preferredWidth: 110 }
+                    Label { text: "Единицы:"; color: root.ink; font.pixelSize: 12 }
+                    TextField { id: iUnit; Layout.preferredWidth: 70; font.pixelSize: 13 }
+                    Label { text: "Знаков:"; color: root.ink; font.pixelSize: 12 }
+                    SpinBox { id: iDec; from: 0; to: 6; Layout.preferredWidth: 90 }
+                }
+                Label { text: "Датчик 0 = окно не выводит значение (—)."; color: "#8894A0"; font.pixelSize: 11 }
             }
-            Label { text: "Датчик 0 = окно не выводит значение (—)."; color: "#8894A0"; font.pixelSize: 11 }
-        }
-        footer: DialogButtonBox {
-            Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: { chartManager.setInfo(infoDialog.idx, iSensor.value, iTitle.text, iUnit.text, iDec.value); infoDialog.close() } }
-            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+            footer: DialogButtonBox {
+                Button { text: "Сохранить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                    onClicked: { chartManager.setInfo(infoDialog.idx, iSensor.value, iTitle.text, iUnit.text, iDec.value); infoDialog.close() } }
+                    Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            }
     }
 
     Dialog {
@@ -1054,13 +1197,13 @@ ApplicationWindow {
         header: Rectangle { implicitHeight: 42; color: root.ink; radius: 8
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 8; color: root.ink }
             Text { anchors.centerIn: parent; text: resetConfirm.title; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true } }
-        background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
-        contentItem: Label { wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
-                             text: "Колонки, параметры, цвета и диапазоны будут заменены стандартным набором. Продолжить?" }
-        footer: DialogButtonBox {
-            Button { text: "Сбросить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: { chartManager.resetToDefaults(); root.toast("Настройки отображения сброшены к стандартным"); resetConfirm.close() } }
-            Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+            background: Rectangle { color: "#FFFFFF"; border.color: root.line; radius: 8 }
+            contentItem: Label { wrapMode: Text.Wrap; color: "#33424F"; font.pixelSize: 13
+                text: "Колонки, параметры, цвета и диапазоны будут заменены стандартным набором. Продолжить?" }
+                footer: DialogButtonBox {
+                    Button { text: "Сбросить"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                        onClicked: { chartManager.resetToDefaults(); root.colRev++; root.toast("Настройки отображения сброшены к стандартным"); resetConfirm.close() } }
+                        Button { text: "Отмена"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+                }
     }
 }

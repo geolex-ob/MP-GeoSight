@@ -1,4 +1,6 @@
 #include <QGuiApplication>
+#include <QIcon>
+#include <QDebug>
 #include <QCoreApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -21,7 +23,12 @@ int main(int argc, char *argv[])
     if (qEnvironmentVariableIsSet("GTI_SOFTWARE"))
         qputenv("QT_QUICK_BACKEND", "software");
 
+    QGuiApplication::setOrganizationName("MPGeoSight");
+    QGuiApplication::setOrganizationDomain("mpgeosight.local");
+    QGuiApplication::setApplicationName("MPGeoSight");
     QGuiApplication app(argc, argv);
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/mp-geosight.ico")));
+    qDebug() << "ICON loaded:" << !app.windowIcon().isNull() << app.windowIcon().availableSizes();
     qmlRegisterType<GeoChartItem>("GeoSight", 1, 0, "GeoChart");
     qmlRegisterType<TimeAxisItem>("GeoSight", 1, 0, "TimeAxis");
 
@@ -68,13 +75,13 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("sensorCatalog", &catalog);
     catalog.loadCsv(QCoreApplication::applicationDirPath() + "/Sensors.csv");
     engine.rootContext()->setContextProperty("dataStore", &store);
-    engine.rootContext()->setContextProperty("appVersion", QStringLiteral("0.1.17"));
+    engine.rootContext()->setContextProperty("appVersion", QStringLiteral("0.1.19"));
     engine.rootContext()->setContextProperty("buildDate", QStringLiteral(__DATE__));
 
     engine.load(QUrl("qrc:/main.qml"));
     if (engine.rootObjects().isEmpty()) return 1;
 
-    engine.rootContext()->setContextProperty("appVersion", QStringLiteral("0.1.17"));
+    engine.rootContext()->setContextProperty("appVersion", QStringLiteral("0.1.19"));
     engine.rootContext()->setContextProperty("buildDate", QStringLiteral(__DATE__));
     if (network.autoConnect())
         network.connectToServer();

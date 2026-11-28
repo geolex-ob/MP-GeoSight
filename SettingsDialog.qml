@@ -38,6 +38,18 @@ Dialog {
             contentItem: Rectangle { implicitWidth: 8; radius: 4; color: dlg.win.inkSoft }
         }
         ColumnLayout {
+            Row {
+                spacing: 10
+                Label { text: "Вид метки:"; font.pixelSize: 12; color: "#12314E"; anchors.verticalCenter: parent.verticalCenter }
+                RadioButton { text: "Метка";   checked: !root.rulerMode; onClicked: root.rulerMode = false }
+                RadioButton { text: "Линейка"; checked:  root.rulerMode; onClicked: root.rulerMode = true }
+            }
+            Label {
+                text: "Линейка ставит метки сразу на всех параметрах всех колонок."
+                font.pixelSize: 10; color: "#8894A0"; wrapMode: Text.Wrap
+                width: parent ? parent.width : 300
+            }
+
             id: settingsCol
             width: parent.width
             spacing: 12

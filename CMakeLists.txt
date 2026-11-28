@@ -22,3 +22,7 @@ add_executable(mp-geosight
 
 target_include_directories(mp-geosight PRIVATE src)
 target_link_libraries(mp-geosight PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Network)
+
+if(WIN32)
+    target_sources(mp-geosight PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/mp-geosight.rc)
+endif()
